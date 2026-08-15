@@ -225,9 +225,20 @@ Contributions are welcome! Please feel free to submit pull requests, report bugs
 
 ---
 
-## 📜 License
+## 📜 License & TL;DR
 
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for complete details.
+
+### 📋 License Summary (TL;DR)
+
+| ✅ What you CAN do | ❌ What you CANNOT do | ⚠️ What you MUST do |
+|---|---|---|
+| • **Commercial Use**: Use in commercial environments | • **Sublicense**: Sublicense under different terms | • **Disclose Source**: Release source code of modifications |
+| • **Modification**: Freely modify the source code | • **Hold Liable**: Software provided without warranty | • **Same License**: Distribute derivatives under GPL-3.0 |
+| • **Distribution**: Distribute original or modified code | • **Proprietary Derivatives**: Make closed-source forks | • **State Changes**: Document any modifications made |
+| • **Private Use**: Run and modify privately | • **Patent Grant**: Sue users for patent infringement | • **Include Notice**: Retain copyright and license notices |
+
+---
 
 ### Acknowledgments & Special Thanks
 - The original [xodus-gaming](https://github.com/xodus-gaming) organization and contributors for creating [xodus](https://github.com/xodus-gaming/xodus), [xgameruntime](https://github.com/xodus-gaming/xgameruntime), and [xgameruntime-docs](https://github.com/xodus-gaming/xgameruntime-docs).
