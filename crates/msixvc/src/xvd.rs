@@ -916,7 +916,7 @@ impl XvdFile {
 
         let s = self.encrypted_section_infos.iter().find(|s| {
             sfile.offset >= s.section_offset && sfile.offset < s.section_offset + s.section_length
-        });
+        }).or_else(|| self.encrypted_section_infos.first());
 
         let mut tweak = None;
         let mut tweak_cipher = None;
@@ -935,7 +935,7 @@ impl XvdFile {
             tweak = Some(Tweak::new(0, s.header_id, s.vduid));
             tweak_cipher = Some(Aes128::new((&tweak_key).into()));
             data_cipher = Some(Aes128::new((&data_key).into()));
-            file_offset_in_section = if sfile.offset >= s.section_offset { sfile.offset - s.section_offset } else { 0 };
+            file_offset_in_section = if sfile.offset >= s.section_offset { sfile.offset - s.section_offset } else { sfile.offset };
 
         } else {
             // TODO for data integrity we need a section for unencrypted sections...

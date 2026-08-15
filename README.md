@@ -1,116 +1,230 @@
 <p align="center"><img width="128" src="assets/Icon/Icon.ico" /></p>
 <h1 align="center">Xodus</h1>
-<p align="center">The great gaming migration to Linux</p>
+<p align="center"><strong>The Native Microsoft Store & Xbox Game Pass Client for Linux</strong></p>
 <p align="center">
-    <a href="https://discord.gg/ZG774FK4tq">
-        <img src="https://img.shields.io/discord/1123890623586504714?logo=discord&style=for-the-badge&color=red&label=Game+Launchers+Reverse+Engineering" alt="Discord" />
+    <a href="https://github.com/nocts-software/xodus/releases">
+        <img src="https://img.shields.io/github/v/release/nocts-software/xodus?style=for-the-badge&color=blue" alt="Latest Release" />
     </a>
+    <a href="https://discord.gg/ZG774FK4tq">
+        <img src="https://img.shields.io/discord/1123890623586504714?logo=discord&style=for-the-badge&color=green&label=Discord" alt="Discord" />
+    </a>
+    <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20SteamDeck-orange?style=for-the-badge" alt="Platform" />
+    <img src="https://img.shields.io/badge/License-GPL--3.0-purple?style=for-the-badge" alt="License" />
 </p>
 
 > [!CAUTION]
-> This is an unofficial project - use at your own risk. It is not affiliated with, endorsed by, or sponsored by Microsoft or XBOX; all trademarks, product names, and company names or logos mentioned herein are the property of their respective owners.
+> **Unofficial Project Notice**: Xodus is an independent, open-source project and is not affiliated with, endorsed by, or sponsored by Microsoft Corporation or Xbox. All trademarks, product names, and logos are property of their respective owners.
 
-## Current state of the project
+---
 
-The project can now login, download packages and obtain licenses for games.
+## 🌟 Overview
 
-These parts are still quite scattered arround.
+**Xodus** is a high-performance, native Linux client and ecosystem designed to download, decrypt, manage, and launch **Xbox Game Pass PC** and **Microsoft Store** titles seamlessly on Linux and Steam Deck using **Wine** and **Proton**.
 
-- [x] Device login
-- [x] User login
-- [x] XBOX authorization
-- [x] MSIXVC download
-- [x] On-demand .exe decryption [#50](https://github.com/xodus-gaming/xodus/issues/50)
-- [ ] MSIXVC2 support [#53](https://github.com/xodus-gaming/xodus/issues/53)
+Traditionally, Microsoft Store games are packaged in proprietary, encrypted **MSIXVC** (Xbox Virtual Disk) containers with deep dependencies on Windows Game Development Kit (GDK) services, making them unplayable on Linux. Xodus bridges this gap completely by combining:
 
-## FAQ
+1. **Direct Package Streaming & Real-Time Decryption**: Downloads and streams chunks directly from Microsoft CDN, decrypting encrypted game binaries on-the-fly.
+2. **Built-in Microsoft Gaming Runtime (`xgameruntime`)**: An open-source GDK runtime implementation providing asynchronous task queues, user authentication, and persistent local storage.
+3. **Automated Cloud Save Syncing**: Bidirectional Xbox Live cloud save synchronization before launch and on game exit.
+4. **Seamless Proton/Wine Integration**: Automated drive letter mappings, Proton compatibility prefix setup, Easy Anti-Cheat runtime discovery, and DLL override management.
+5. **Modern Desktop GUI**: A sleek, hardware-accelerated desktop interface with library browsing, cover art hydration, search filtering, and one-click launch.
 
-**Q: What is Xodus**  
-Xodus aims to bring XBOX PC games to Linux and possibly Mac devices.
+---
 
-**Q: When can I play my Minecraft Bedrock?**  
-While Xodus is quickly maturing, there is still a lot of work to support it from Wine standpoint to provide necessary XBOX Services to games.  
-_TL;DR_ soon<sup>tm</sup>
+## ✨ Key Features
 
-**Q: How to get involved?**  
-Start by joining our Discord or review any open GitHub issues .
+- **🎮 Comprehensive Library Management**:
+  - Automatically fetches and displays your owned Microsoft Store library and active Xbox Game Pass titles.
+  - Cached offline SQLite database for instant startup and offline browsing.
+  - Rich metadata, high-resolution box art, developer information, and license indicators.
 
-**Q: What games will be supported?**  
-We hope to manage to support most of the catalog, the limitation is the game has to be GDK and in MSIXVC format.  
-So far `Gears of War 4` is a prominent unsupported title for the time being.
+- **⚡ MSIXVC Streaming & Decryption**:
+  - Direct chunk streaming from Microsoft Store CDNs with zero-copy decryption.
+  - On-demand in-place binary extraction without duplicating entire game folders.
+  - Full support for `.msixvc` containers, Content directories, and `MicrosoftGame.config` parsing.
 
-**Q: Will XBOX Backward Compatibility on PC work?**  
-While Xodus is capable of downloading and running those titles. It's possible these games will work only after additional patches to wine, dxvk or vkd3d-proton.
+- **🚀 Native Execution via Proton / Wine**:
+  - Automatic discovery of Proton installations (Proton CachyOS, GE-Proton, Proton Experimental, Proton 9/8).
+  - Custom `dosdevices` virtual drive mapping (`X:`) preventing anti-cheat drive rejection (fixes Easy Anti-Cheat `Z:\` root drive errors).
+  - Full compatibility with Steam's Linux Easy Anti-Cheat Runtime (`Proton EasyAntiCheat Runtime/v2`).
 
-## Building
+- **☁️ Xbox Live Cloud Saves**:
+  - Cloud save synchronization querying Xbox Live Title Storage and Connected Storage (SCID/XUID).
+  - Automatic `pull` on game startup and automated `push` upon game session exit.
+  - Local save translation into Wine prefix application data directories.
 
-The project structure is as follows.
+- **🛠️ Power-User CLI & Background Service**:
+  - Rich command-line interface (`xodus-cli`) for headless servers, scripts, and Steam Deck Game Mode shortcuts.
+  - Inter-process communication daemon (`xodus-service`) handling token management and GDK runtime integration.
+
+---
+
+## 📦 Project Architecture
+
+The Xodus workspace is organized into modular Rust crates:
 
 ```
-.
-├── msixvc - [rlib] common rlib crate for utilities for parsing MSIXVC and XSP files
-├── xodus - [rlib] common rlib crate that contains core xodus functionality, API calls abstractions and utilities
-├── xodus-cli - [bin] CLI currently used for iterating over new xodus features
-└── xodus-service - [bin] service process exposing a xodus.sock for IPC communication, it takes care of xgameruntime.dll integration.
+xodus/
+├── crates/
+│   ├── msixvc/        # High-performance parser and decryptor for MSIXVC / XVD containers
+│   ├── xodus/         # Core library: Xbox Live OAuth, MSA tokens, catalog, and cloud saves
+│   ├── xodus-cli/     # Command-line interface for downloads, running games, and save management
+│   ├── xodus-gui/     # Modern Wry/Tao desktop client with dark aesthetic and MangoHud controls
+│   └── xodus-service/ # IPC daemon and system service for xgameruntime.dll integration
+├── assets/            # Desktop icons, SVG graphics, and visual assets
+├── docs/              # In-depth architectural and protocol documentation
+└── build-appimage.sh  # Automated build script producing standalone AppImage releases
 ```
 
-> [!NOTE]
-> xodus-service aims to become a main point of integration. All xodus clients will connect to it to interact with games and XBOX services.
+---
 
-### Prerequisites
+## 🚀 Quick Start & Installation
 
-- Rust version supporting `edition = "2024"`
-- Right now CLI relies on wry and tao to show a login page. Consult https://docs.rs/wry/latest/wry/#platform-considerations
-- xodus-service relies on `protoc` to compile `proto/` definitions make sure to install it for your platform
+### Option 1: Standalone AppImage (Recommended)
 
-### Running
-
-Building all crates in release mode
+Download the latest `Xodus-x86_64.AppImage` from the [Releases](https://github.com/nocts-software/xodus/releases) page:
 
 ```bash
-cargo build --release --workspace
+chmod +x Xodus-x86_64.AppImage
+
+# Launch the Graphical Client
+./Xodus-x86_64.AppImage
+
+# Or use as a CLI tool directly
+./Xodus-x86_64.AppImage streaming 9PK087LNGJC5 /mnt/w11/XboxGames/Balatro
+./Xodus-x86_64.AppImage run /mnt/w11/XboxGames/Balatro
 ```
 
-Running cli in debug
+### Option 2: Building from Source
 
+#### Prerequisites
+
+- **Rust toolchain** (supporting `edition = "2024"`, 1.85+)
+- **System dependencies** (Debian/Ubuntu/Arch/Fedora):
+  - `pkg-config`, `openssl-devel` / `libssl-dev`
+  - `webkit2gtk4.1-devel` / `libwebkit2gtk-4.1-dev` (for GUI)
+  - `protoc` (protobuf compiler)
+  - `wine`, `winegcc`, `winebuild`, `widl` (for compiling runtime libraries)
+  - `appimagetool` (optional, for packaging AppImages)
+
+#### Compilation
+
+1. Clone the repository and submodules:
+   ```bash
+   git clone https://github.com/nocts-software/xodus.git --recursive
+   cd xodus
+   ```
+
+2. Build all release binaries:
+   ```bash
+   cargo build --release --workspace
+   ```
+
+3. Build the self-contained AppImage:
+   ```bash
+   ./build-appimage.sh
+   ```
+
+---
+
+## 🖥️ Usage Guide
+
+### 1. Graphical Interface (`xodus-gui`)
+
+Launch `xodus-gui` to authenticate with your Microsoft / Xbox account:
+
+- **Sign In**: Click "Sign In with Microsoft" to authenticate via secure OAuth2 device login.
+- **Library Sync**: Your game entitlements and Xbox Game Pass catalog are fetched and cached automatically.
+- **Install & Stream**: Select any game and click **Install** to stream and decrypt package files.
+- **Launch**: Click **Play** on any installed title to launch with configured Proton/Wine options.
+
+### 2. Command-Line Interface (`xodus-cli`)
+
+The `xodus` CLI provides complete control over authentication, package extraction, execution, and cloud saves.
+
+#### Authentication & Status
+
+```bash
+# Authenticate with Microsoft account via browser device code flow
+xodus login
+
+# Inspect current authentication status and user Gamertag
+xodus status
+
+# View license entitlements and ownership
+xodus entitlements
 ```
-cargo run -- --help
+
+#### Downloading & Streaming Games
+
+```bash
+# Stream and decrypt a game directly by Store BigID (e.g. Balatro: 9PK087LNGJC5)
+xodus streaming 9PK087LNGJC5 /mnt/w11/XboxGames/Balatro
+
+# Download raw MSIXVC package from CDN
+xodus download 9PK087LNGJC5 /mnt/w11/XboxGames/Downloads
 ```
 
-Running xodus-service in debug
+#### Running Games
 
-```
-cargo run --bin xodus-service
-```
+```bash
+# Launch an installed game folder with Proton and cloud save sync
+xodus run /mnt/w11/XboxGames/Balatro
 
-> [!WARNING]
-> For better performance when decrypting MSIXVC files, the `aes` and `ssse3` features are enabled on `x86_64`,
-> and the `aes` feature is enabled on `aarch64`. This means that the program will crash with an illegal instruction
-> error when running on a CPU which doesn't support those instructions.
->
-> See https://en.wikipedia.org/wiki/AES_instruction_set for a list of compatible CPUs (every processor from
-> 2011 onwards should be supported).
-
-### CLI Usage
-
-```
-Usage: xodus-cli <COMMAND>
-
-Commands:
-  download    Download msixvc or xsp files fo given game
-  license     Dump CIKs for use with XvdTool
-  extract     Extract locally stored msixvc file
-  login       
-  streaming   Download and extract the game through streaming algorithm
-  clep        Generate or decrypt base64-encoded CLEP challenge data
-  sp-license  Decode SPLicenseBlock
-  help        Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
+# Launch with custom Proton binary
+PROTON_PATH=/usr/share/steam/compatibilitytools.d/proton-cachyos-native/proton \
+xodus run /mnt/w11/XboxGames/Balatro
 ```
 
-## Special Thanks
+#### Cloud Saves
 
-- [XvdTool.Streaming](https://github.com/LukeFZ/XvdTool.Streaming) and [CikExtractor](https://github.com/LukeFZ/CikExtractor) by LukeFZ
+```bash
+# Manually pull Xbox Live cloud saves for a game directory
+xodus save pull /mnt/w11/XboxGames/Balatro
+
+# Manually push local saves to Xbox Live cloud
+xodus save push /mnt/w11/XboxGames/Balatro
+```
+
+#### Extraction & Encryption Tools
+
+```bash
+# Dump Content Encryption Keys (CIK)
+xodus license <path-to-msixvc>
+
+# Decrypt and extract local MSIXVC container
+xodus extract <path-to-msixvc> <output-dir>
+```
+
+---
+
+## ⚙️ Environment Variables & Tuning
+
+| Variable | Description | Default |
+|---|---|---|
+| `PROTON_PATH` | Path to custom Proton executable script | Auto-detected from Steam & system paths |
+| `XODUS_RUNTIME_PATH` | Directory containing GDK runtime DLLs | Bundled with AppImage or `/usr/lib/xodus` |
+| `WINEDLLPATH` | Wine shared library search path | Configured automatically |
+| `WINEDLLOVERRIDES` | DLL override specifications for Wine | Configured automatically for GDK shims |
+| `XODUS_LOG` | Rust logging level (`trace`, `debug`, `info`, `warn`, `error`) | `info` |
+
+---
+
+## 🤝 Contributing & Community
+
+Contributions are welcome! Please feel free to submit pull requests, report bugs, or request features on GitHub.
+
+- **Discord**: [Join our Game Launchers Reverse Engineering Discord](https://discord.gg/ZG774FK4tq)
+- **Sister Projects**:
+  - [xgameruntime](https://github.com/nocts-software/xgameruntime): Open-source Wine implementation of Microsoft Gaming Runtime.
+  - [xgameruntime-docs](https://github.com/nocts-software/xgameruntime-docs): Detailed documentation of GDK COM interfaces and reverse engineering notes.
+
+---
+
+## 📜 License
+
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for complete details.
+
+### Acknowledgments & Special Thanks
+- [LukeFZ](https://github.com/LukeFZ) for pioneering research in `XvdTool.Streaming` and `CikExtractor`.
+- The Wine and Proton communities for runtime compatibility foundations.

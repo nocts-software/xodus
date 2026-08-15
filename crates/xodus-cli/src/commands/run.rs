@@ -1,15 +1,12 @@
 use std::collections::HashMap;
-use std::os::fd::{AsFd, IntoRawFd};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use msixvc::models::xvd::PAGE_SIZE;
 use msixvc::xvd::{SegmentFile, XvdFile};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 #[cfg(target_os = "linux")]
 use rustix::fs::{MemfdFlags, memfd_create};
-use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
 #[cfg(not(target_os = "linux"))]
 use tempfile::{tempdir, tempfile, tempfile_in};
 use tokio::fs::{File, OpenOptions};
@@ -19,6 +16,7 @@ use xodus::tokens::TokenManager;
 
 use crate::license::get_license;
 
+#[allow(dead_code)]
 #[cfg(target_os = "linux")]
 fn make_temp_file(_folder: &str) -> std::io::Result<std::fs::File> {
     let fd = memfd_create("xodus", MemfdFlags::CLOEXEC).map_err(std::io::Error::from)?;
@@ -108,6 +106,7 @@ async fn prepare(lfiles: &HashMap<String, SegmentFile>) -> (impl AsyncFnOnce(), 
     )
 }
 
+#[allow(dead_code)]
 #[cfg(not(target_os = "macos"))]
 async fn prepare(_lfiles: &HashMap<String, SegmentFile>) -> (impl AsyncFnOnce(), String) {
     (async || {}, "".to_owned())
@@ -187,7 +186,29 @@ async fn ensure_service_running() {
     let service_binary = {
         let home = std::env::var("HOME").unwrap_or_default();
         let local_bin = PathBuf::from(format!("{}/.local/bin/xodus-service", home));
-        if local_bin.exists() {
+        let release_target = PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xodus/target/release/xodus-service");
+        let debug_target = PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xodus/target/debug/xodus-service");
+        let exe_sibling = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("xodus-service")));
+
+        if let Some(ref sib) = exe_sibling {
+            if sib.exists() {
+                Some(sib.clone())
+            } else if release_target.exists() {
+                Some(release_target)
+            } else if debug_target.exists() {
+                Some(debug_target)
+            } else if local_bin.exists() {
+                Some(local_bin)
+            } else if let Ok(path_var) = std::env::var("PATH") {
+                path_var.split(':').map(PathBuf::from).map(|p| p.join("xodus-service")).find(|p| p.exists())
+            } else {
+                None
+            }
+        } else if release_target.exists() {
+            Some(release_target)
+        } else if debug_target.exists() {
+            Some(debug_target)
+        } else if local_bin.exists() {
             Some(local_bin)
         } else if let Ok(path_var) = std::env::var("PATH") {
             path_var.split(':').map(PathBuf::from).map(|p| p.join("xodus-service")).find(|p| p.exists())
@@ -198,12 +219,24 @@ async fn ensure_service_running() {
 
 
     if let Some(bin) = service_binary {
-        let _ = tokio::process::Command::new(bin)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/xodus-service.log")
+            .ok();
+        let mut cmd = tokio::process::Command::new(bin);
+        cmd.env("RUST_LOG", "info,xodus=debug,xodus_service=debug");
+        if let Some(ref f) = log_file {
+            if let Ok(f_clone) = f.try_clone() {
+                cmd.stdout(std::process::Stdio::from(f_clone));
+            }
+            if let Ok(f_clone) = f.try_clone() {
+                cmd.stderr(std::process::Stdio::from(f_clone));
+            }
+        }
+        let _ = cmd.spawn();
 
-        for _ in 0..15 {
+        for _ in 0..20 {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
                 println!("xodus-service daemon connected.");
@@ -337,7 +370,7 @@ pub async fn run(
         }
     }
 
-    let target_exe_name = exe.unwrap_or_else(|| "Brotato.exe".to_string());
+    let target_exe_name = exe.unwrap_or_else(|| "Game.exe".to_string());
     let target_exe_path = content_dir.join(&target_exe_name);
     println!("Target executable path: {:?}", target_exe_path);
 
@@ -383,9 +416,9 @@ pub async fn run(
 
     if is_plaintext || container_path.is_none() {
         println!("Launching in-place executable directly with Wine: {:?}", target_exe_path);
-        let mut cmd = Command::new(&wine);
-        cmd.current_dir(&content_dir)
-           .arg(&target_exe_path)
+        let mut cmd = Command::new("wine");
+        cmd.arg(content_dir.join(&target_exe_name))
+           .current_dir(&content_dir)
            .env("WINEDLLOVERRIDES", &dll_overrides)
            .env("WINEDLLPATH", &wine_dll_path);
 
@@ -484,69 +517,47 @@ pub async fn run(
 
     let cached_exe = cache_dir.join(&target_exe_name);
 
-    let sfile_opt = lfiles.iter().find(|(k, _)| {
-        let norm_k = k.replace('\\', "/").to_ascii_lowercase();
-        let norm_target = target_exe_name.to_ascii_lowercase();
-        norm_k == norm_target || norm_k.ends_with(&format!("/{}", norm_target)) || norm_k.ends_with(&norm_target)
-    }).map(|(_, v)| v);
-
-    if let Some(sfile) = sfile_opt {
-        if !cached_exe.exists() {
-            println!("Found segment for {}: offset={}, length={}", target_exe_name, sfile.offset, sfile.length);
-            let mut out_f = File::create(&cached_exe).await.unwrap();
-            if target_exe_path.exists() {
-                let mut src_f = File::open(&target_exe_path).await.unwrap();
-                if let Err(err) = xvd.mount_mem_fd(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
-                    eprintln!("Failed to decrypt binary: {}", err);
-                }
-            } else {
-                let mut src_f = File::open(&final_path).await.unwrap();
-                if let Err(err) = xvd.extract_file(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
-                    eprintln!("Failed to decrypt binary: {}", err);
-                }
-            }
-            use tokio::io::AsyncWriteExt;
-            out_f.flush().await.ok();
-        }
-
-        // Disable console-specific CPlatformUI overlay draw routines and clean shutdown
-        if let Ok(mut data) = std::fs::read(&cached_exe) {
-            let mut modified = false;
-            for rva in [0x21911e0, 0x2196a50, 0x2197150, 0x21973e0, 0x2197580, 0x21978d0, 0x2197a00] {
-                if rva > 0x1000 && rva - 0x1000 + 0x600 < data.len() {
-                    let off = 0x600 + (rva - 0x1000);
-                    if data[off] != 0xc3 {
-                        data[off] = 0xc3;
-                        modified = true;
-                    }
-                }
-            }
-
-            // Bypass GDK suspend timeout shutdown (RVA 0x2194ad3: 0f 84 b3 00 00 00 -> e9 b4 00 00 00 90)
-            let suspend_off = 0x600 + (0x2194ad3 - 0x1000);
-            if suspend_off + 6 <= data.len() && &data[suspend_off..suspend_off+6] == &[0x0f, 0x84, 0xb3, 0x00, 0x00, 0x00] {
-                data[suspend_off..suspend_off+6].copy_from_slice(&[0xe9, 0xb4, 0x00, 0x00, 0x00, 0x90]);
-                modified = true;
-            }
-            if modified {
-                let _ = std::fs::write(&cached_exe, &data);
-            }
-        }
-
-    } else {
-        println!("Executable {} not found in segment metadata (total {} files)", target_exe_name, lfiles.len());
-        for (k, _) in lfiles.iter().take(10) {
-            println!("  Segment file: {}", k);
-        }
+    println!("Encrypted section infos count: {}", xvd.encrypted_section_infos.len());
+    for (i, s) in xvd.encrypted_section_infos.iter().enumerate() {
+        println!("  Section #{}: offset={}, length={}, data_units={:?}", i, s.section_offset, s.section_length, s.data_units.as_ref().map(|u| u.len()));
     }
 
-
-
+    // Decrypt all .exe segments present in the package into cache_dir (preserving relative path structure)
+    let mut decrypted_exes: Vec<(String, PathBuf)> = Vec::new();
+    for (k, sfile) in &lfiles {
+        let norm_k = k.replace('\\', "/");
+        if norm_k.to_ascii_lowercase().ends_with(".exe") {
+            let rel_path = norm_k.trim_start_matches('/').to_string();
+            let dest_exe = cache_dir.join(&rel_path);
+            if let Some(parent) = dest_exe.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            let should_extract = !dest_exe.exists() || std::fs::metadata(&dest_exe).map(|m| m.len() == 0).unwrap_or(true);
+            if should_extract {
+                println!("Decrypting executable segment {}: length={}", rel_path, sfile.length);
+                if let Ok(mut out_f) = File::create(&dest_exe).await {
+                    let full_src = content_dir.join(&rel_path);
+                    if full_src.exists() {
+                        if let Ok(mut src_f) = File::open(&full_src).await {
+                            let _ = xvd.mount_mem_fd(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await;
+                        }
+                    } else {
+                        if let Ok(mut src_f) = File::open(&final_path).await {
+                            let _ = xvd.extract_file(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await;
+                        }
+                    }
+                    use tokio::io::AsyncWriteExt;
+                    out_f.flush().await.ok();
+                }
+            }
+            decrypted_exes.push((rel_path, dest_exe));
+        }
+    }
 
     let run_dir = PathBuf::from(format!("{}/.cache/xodus/run/{}", home, title_id_str));
     tokio::fs::create_dir_all(&run_dir).await.ok();
 
-    // Zero-copy symlink all assets and configs from Content into run_dir
+    // Zero-copy symlink all assets and configs from Content into run_dir, preserving decrypted binaries
     if let Ok(entries) = std::fs::read_dir(&content_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
@@ -555,11 +566,116 @@ pub async fn run(
             if file_name.to_string_lossy() == target_exe_name {
                 continue;
             }
-            if !dest.exists() {
+            
+            if p.is_dir() {
+                // Check if any decrypted binary lives under this subfolder
+                let sub_folder_name = file_name.to_string_lossy().to_lowercase();
+                let has_sub_decrypted = decrypted_exes.iter().any(|(rel, _)| rel.to_lowercase().starts_with(&sub_folder_name));
+                if has_sub_decrypted {
+                    let _ = tokio::fs::create_dir_all(&dest).await;
+                    if let Ok(sub_entries) = std::fs::read_dir(&p) {
+                        for sub_entry in sub_entries.flatten() {
+                            let sp = sub_entry.path();
+                            let s_name = sp.file_name().unwrap();
+                            let s_dest = dest.join(s_name);
+                            if sp.is_dir() {
+                                let _ = tokio::fs::create_dir_all(&s_dest).await;
+                                if let Ok(nested_entries) = std::fs::read_dir(&sp) {
+                                    for nested in nested_entries.flatten() {
+                                        let np = nested.path();
+                                        let n_name = np.file_name().unwrap();
+                                        let n_dest = s_dest.join(n_name);
+                                        let n_name_lower = n_name.to_string_lossy().to_lowercase();
+                                        let matched_decrypted = decrypted_exes.iter().find(|(rel, _)| {
+                                            rel.to_lowercase().ends_with(&n_name_lower)
+                                        });
+                                        if let Some((_, dec_path)) = matched_decrypted {
+                                            let _ = tokio::fs::remove_file(&n_dest).await;
+                                            #[cfg(unix)]
+                                            let _ = std::os::unix::fs::symlink(dec_path, &n_dest);
+                                        } else if !n_dest.exists() {
+                                            #[cfg(unix)]
+                                            let _ = std::os::unix::fs::symlink(&np, &n_dest);
+                                        }
+                                    }
+                                }
+                            } else {
+                                let s_name_lower = s_name.to_string_lossy().to_lowercase();
+                                let matched_decrypted = decrypted_exes.iter().find(|(rel, _)| {
+                                    rel.to_lowercase().ends_with(&s_name_lower)
+                                });
+                                if let Some((_, dec_path)) = matched_decrypted {
+                                    let _ = tokio::fs::remove_file(&s_dest).await;
+                                    #[cfg(unix)]
+                                    let _ = std::os::unix::fs::symlink(dec_path, &s_dest);
+                                } else if !s_dest.exists() {
+                                    #[cfg(unix)]
+                                    let _ = std::os::unix::fs::symlink(&sp, &s_dest);
+                                }
+                            }
+                        }
+                    }
+                } else if !dest.exists() {
+                    #[cfg(unix)]
+                    let _ = std::os::unix::fs::symlink(&p, &dest);
+                }
+            } else if !dest.exists() {
                 #[cfg(unix)]
                 let _ = std::os::unix::fs::symlink(&p, &dest);
             }
         }
+    }
+
+    // Patch EasyAntiCheat/Settings.json to use a proper Windows drive letter (fixes EAC rejection of Z: drive)
+    // The core EAC problem: EAC refuses to launch executables on Wine's Z: drive (Linux root).
+    // Wine always maps Z: to /. Games must appear to be on C: or another lettered drive.
+    // Solution: create a dosdevices drive mapping (x:) in the Proton compat prefix that points
+    // to content_dir, so EAC sees the game at X:\Athena\Binaries\WinGDK\SotGame.exe — a
+    // proper Windows path on a proper Windows drive letter.
+    let compat_title_for_eac = parsed_title_id.as_deref().unwrap_or(&title_id_str);
+    let compat_data_for_eac = PathBuf::from(format!("{}/.local/share/xodus/compatdata/{}", home, compat_title_for_eac));
+    let dosdevices = compat_data_for_eac.join("pfx").join("dosdevices");
+    tokio::fs::create_dir_all(&dosdevices).await.ok();
+
+    // Create drive mapping: x: -> content_dir (the game's actual installation directory)
+    let xdrive = dosdevices.join("x:");
+    if xdrive.is_symlink() {
+        let _ = std::fs::remove_file(&xdrive);
+    }
+    if !xdrive.exists() {
+        #[cfg(unix)]
+        let _ = std::os::unix::fs::symlink(&content_dir, &xdrive);
+    }
+    let _game_drive_letter = 'X';
+
+    // EAC Settings.json: always keep original relative path (Athena\Binaries\WinGDK\SotGame.exe).
+    // EAC bootstrapper resolves this path relative to its working directory (run_dir).
+    let eac_dir = run_dir.join("EasyAntiCheat");
+    let content_eac_dir = content_dir.join("EasyAntiCheat");
+    if content_eac_dir.exists() {
+        if eac_dir.is_symlink() {
+            let _ = std::fs::remove_file(&eac_dir);
+        }
+        let _ = std::fs::create_dir_all(&eac_dir);
+        if let Ok(entries) = std::fs::read_dir(&content_eac_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let file_name = p.file_name().unwrap();
+                let dest = eac_dir.join(file_name);
+                if file_name.to_string_lossy().to_lowercase() == "settings.json" {
+                    if let Ok(content) = std::fs::read_to_string(&p) {
+                        let modified_content = content.replace("\"WaitForGameProcessExit\": false", "\"WaitForGameProcessExit\": true");
+                        let _ = std::fs::write(&dest, modified_content);
+                    } else {
+                        let _ = std::fs::copy(&p, &dest);
+                    }
+                } else if !dest.exists() {
+                    #[cfg(unix)]
+                    let _ = std::os::unix::fs::symlink(&p, &dest);
+                }
+            }
+        }
+        println!("EAC Settings.json: using original relative executable path");
     }
 
     let game_binary_in_run = run_dir.join(&target_exe_name);
@@ -569,13 +685,10 @@ pub async fn run(
         let _ = std::os::unix::fs::symlink(&cached_exe, &game_binary_in_run);
     }
 
-    let exec_target = if game_binary_in_run.exists() {
-        game_binary_in_run
-    } else if cached_exe.exists() {
-        cached_exe
-    } else {
-        target_exe_path
-    };
+    // exec_target MUST be the decrypted binary in run_dir (symlink to cached decrypted PE).
+    // content_dir has the encrypted GDK binaries which Wine cannot execute (error 193).
+    let exec_target = game_binary_in_run.clone();
+    println!("exec_target (decrypted run_dir): {:?}", exec_target);
 
     let proton_binary = {
         let mut candidates = Vec::new();
@@ -635,23 +748,53 @@ pub async fn run(
         })
         .or_else(|| Some(PathBuf::from("/usr/lib/xodus")));
 
-    let gdk_so = runtime_dir
+    let gdk_dll = runtime_dir
         .as_ref()
-        .map(|d| d.join("xgameruntime.dll.so"))
+        .map(|d| d.join("xgameruntime.dll"))
         .filter(|p| p.exists())
-        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/xgameruntime.dll.so")).filter(|p| p.exists()));
+        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/xgameruntime.dll")).filter(|p| p.exists()));
 
-    let twinapi_so = runtime_dir
+    let twinapi_dll = runtime_dir
         .as_ref()
-        .map(|d| d.join("twinapi.appcore.dll.so"))
+        .map(|d| d.join("twinapi.appcore.dll"))
         .filter(|p| p.exists())
-        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/twinapi.appcore.dll.so")).filter(|p| p.exists()));
+        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/twinapi.appcore.dll")).filter(|p| p.exists()));
 
-    if let Some(ref gdk) = gdk_so {
-        let _ = tokio::fs::copy(gdk, run_dir.join("xgameruntime.dll")).await;
-    }
-    if let Some(ref twinapi) = twinapi_so {
-        let _ = tokio::fs::copy(twinapi, run_dir.join("twinapi.appcore.dll")).await;
+    let appnotify_dll = runtime_dir
+        .as_ref()
+        .map(|d| d.join("api-ms-win-core-psm-appnotify-l1-1-0.dll"))
+        .filter(|p| p.exists())
+        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll")).filter(|p| p.exists()));
+
+    let target_sub_dirs = [
+        run_dir.clone(),
+        cached_exe.parent().unwrap_or(&run_dir).to_path_buf(),
+        run_dir.join("Athena").join("Binaries").join("WinGDK"),
+    ];
+
+    for dir in &target_sub_dirs {
+        if dir.exists() {
+            if let Some(ref gdk) = gdk_dll {
+                let _ = tokio::fs::copy(gdk, dir.join("xgameruntime.dll")).await;
+                let gdk_so = gdk.with_extension("dll.so");
+                if gdk_so.exists() {
+                    let _ = tokio::fs::copy(&gdk_so, dir.join("xgameruntime.dll.so")).await;
+                    let _ = tokio::fs::copy(&gdk_so, dir.join("xgameruntime.so")).await;
+                }
+            }
+            if let Some(ref twinapi) = twinapi_dll {
+                let _ = tokio::fs::copy(twinapi, dir.join("twinapi.appcore.dll")).await;
+                let twinapi_so = twinapi.with_extension("dll.so");
+                if twinapi_so.exists() {
+                    let _ = tokio::fs::copy(&twinapi_so, dir.join("twinapi.appcore.dll.so")).await;
+                    let _ = tokio::fs::copy(&twinapi_so, dir.join("twinapi.appcore.so")).await;
+                }
+            }
+            if let Some(ref appnotify) = appnotify_dll {
+                let _ = tokio::fs::copy(appnotify, dir.join("api-ms-win-core-psm-appnotify-l1-1-0.dll")).await;
+            }
+            let _ = tokio::fs::copy(content_dir.join("MicrosoftGame.config"), dir.join("MicrosoftGame.config")).await;
+        }
     }
 
     let use_proton = wine == "wine" && proton_binary.is_some();
@@ -671,23 +814,89 @@ pub async fn run(
     let mut cmd = Command::new(&runner);
     cmd.current_dir(&run_dir);
 
+    // Pass exec_target as native Linux path to Proton (Proton handles Z: mapping itself).
+    // EAC Settings.json uses X:\ so EAC resolves SotGame.exe via dosdevices,
+    // but SeaOfThieves.exe (the bootstrapper) can be passed directly.
+    let exec_target_str = exec_target.to_string_lossy();
+    let win_exec_target = format!("Z:{}", exec_target_str.replace('/', "\\"));
+    println!("Launching Windows executable at: {}", win_exec_target);
+
     if use_proton {
         let compat_title = parsed_title_id.as_deref().unwrap_or(&title_id_str);
         let compat_data = PathBuf::from(format!("{}/.local/share/xodus/compatdata/{}", home, compat_title));
         tokio::fs::create_dir_all(&compat_data).await.ok();
 
+        let system32 = compat_data.join("pfx").join("drive_c").join("windows").join("system32");
+        if system32.exists() {
+            if let Some(ref gdk) = gdk_dll {
+                let dst = system32.join("xgameruntime.dll");
+                let _ = tokio::fs::remove_file(&dst).await;
+                let _ = tokio::fs::copy(gdk, &dst).await;
+                let gdk_so = gdk.with_extension("dll.so");
+                if gdk_so.exists() {
+                    let _ = tokio::fs::copy(&gdk_so, system32.join("xgameruntime.dll.so")).await;
+                    let _ = tokio::fs::copy(&gdk_so, system32.join("xgameruntime.so")).await;
+                }
+            }
+            if let Some(ref twinapi) = twinapi_dll {
+                let dst = system32.join("twinapi.appcore.dll");
+                let _ = tokio::fs::remove_file(&dst).await;
+                let _ = tokio::fs::copy(twinapi, &dst).await;
+                let twinapi_so = twinapi.with_extension("dll.so");
+                if twinapi_so.exists() {
+                    let _ = tokio::fs::copy(&twinapi_so, system32.join("twinapi.appcore.dll.so")).await;
+                    let _ = tokio::fs::copy(&twinapi_so, system32.join("twinapi.appcore.so")).await;
+                }
+            }
+            if let Some(ref appnotify) = appnotify_dll {
+                let dst = system32.join("api-ms-win-core-psm-appnotify-l1-1-0.dll");
+                let _ = tokio::fs::remove_file(&dst).await;
+                let _ = tokio::fs::copy(appnotify, dst).await;
+            }
+        }
+
+        let eac_runtime_path = format!("{}/.local/share/Steam/steamapps/common/Proton EasyAntiCheat Runtime/v2", home);
+        let has_eac_runtime = std::path::Path::new(&eac_runtime_path).exists();
+        if has_eac_runtime {
+            println!("EAC Runtime found at: {}", eac_runtime_path);
+        }
+
         cmd.arg("run")
-           .arg(&exec_target)
+           .arg(&win_exec_target)
            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", format!("{}/.local/share/Steam", home))
            .env("STEAM_COMPAT_DATA_PATH", &compat_data)
-           .env("SteamGameId", compat_title)
-           .env("SteamAppId", compat_title)
            .env("PROTON_LOG", "1")
-           .env("WINEDLLOVERRIDES", "xgameruntime=n,b;twinapi.appcore=n,b")
+           .env("WINEDEBUG", "+gdkc,+xgameruntime")
            .env("WINEDLLPATH", &wine_dll_path);
 
+        // Wire in Proton's native Linux EAC runtime if available.
+        // PROTON_EAC_RUNTIME tells Proton's internal Wine DLL where the Linux EAC shim lives.
+        // NOTE: Full EAC Linux runtime requires Steam's EAC service daemon. We set the env var
+        // anyway so any Proton-internal hooks can pick it up.
+        if has_eac_runtime {
+            cmd.env("PROTON_EAC_RUNTIME", &eac_runtime_path);
+            // Add the EAC runtime lib64 to Wine's DLL search path
+            let eac_lib64 = format!("{}/lib64", eac_runtime_path);
+            let combined_dll_path = format!("{}:{}", eac_lib64, wine_dll_path);
+            cmd.env("WINEDLLPATH", &combined_dll_path);
+            // EAC uses SteamAppId for game identification on its servers
+            if let Some(ref tid) = parsed_title_id {
+                cmd.env("SteamAppId", tid);
+                cmd.env("SteamGameId", tid);
+                cmd.env("STEAM_COMPAT_APP_ID", tid);
+            }
+        } else {
+            cmd.env("WINEDLLPATH", &wine_dll_path);
+        }
+        // Standard DLL overrides — don't touch EAC DLLs, let EAC use its own Windows-side logic
+        cmd.env("WINEDLLOVERRIDES",
+            "xgameruntime=n,b;twinapi.appcore=n,b;api-ms-win-core-psm-appnotify-l1-1-0=n,b;\
+             steamclient=;steamclient64=;steam_api=;steam_api64=;\
+             GameOverlayRenderer=;GameOverlayRenderer64=");
+
+
     } else {
-        cmd.arg(&exec_target)
+        cmd.arg(&win_exec_target)
            .env("WINEDLLOVERRIDES", &dll_overrides)
            .env("WINEDLLPATH", &wine_dll_path);
     }
@@ -725,6 +934,64 @@ pub async fn run(
             return ExitCode::FAILURE;
         }
     };
+
+    // If the game executable launched a secondary child process (e.g. shipping binary or worker),
+    // wait until the child process actually exits before tearing down the session.
+    let secondary_exes: Vec<String> = decrypted_exes.iter().filter_map(|(rel, _)| {
+        let name = Path::new(rel).file_name()?.to_string_lossy().to_string();
+        if !name.eq_ignore_ascii_case(&target_exe_name) {
+            Some(name)
+        } else {
+            None
+        }
+    }).collect();
+
+    if !secondary_exes.is_empty() {
+        println!("Checking for active child game processes ({:?})...", secondary_exes);
+        let mut active_child: Option<String> = None;
+        for _ in 0..20 {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            for child in &secondary_exes {
+                let stem = Path::new(child).file_stem().unwrap_or_default().to_string_lossy();
+                let check = tokio::process::Command::new("pgrep")
+                    .arg("-i")
+                    .arg("-f")
+                    .arg(&*stem)
+                    .output()
+                    .await;
+                if let Ok(out) = check {
+                    if !out.stdout.is_empty() {
+                        println!("Detected active child game process: {}", child);
+                        active_child = Some(stem.to_string());
+                        break;
+                    }
+                }
+            }
+            if active_child.is_some() {
+                break;
+            }
+        }
+
+        if let Some(child_stem) = active_child {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                let check = tokio::process::Command::new("pgrep")
+                    .arg("-i")
+                    .arg("-f")
+                    .arg(&child_stem)
+                    .output()
+                    .await;
+                if let Ok(out) = check {
+                    if out.stdout.is_empty() {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            println!("Game session finished.");
+        }
+    }
 
     // Auto-sync cloud saves: Push updated local saves to Xbox Live after session
     println!("Auto-syncing cloud saves (push) to Xbox Live after session exit...");

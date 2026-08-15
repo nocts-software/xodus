@@ -129,6 +129,8 @@ enum SaveAction {
     },
     #[command(about = "Show local and cloud save status")]
     Status {
+        #[clap(long, help = "Output as JSON")]
+        json: bool,
         #[clap(help = "Path to game directory or MSIXVC container")]
         source: String,
     },
@@ -246,7 +248,7 @@ async fn main() -> ExitCode {
         SubCommand::Save { action } => match action {
             SaveAction::Pull { source } => commands::save::pull(&client, &tokens, source).await,
             SaveAction::Push { source } => commands::save::push(&client, &tokens, source).await,
-            SaveAction::Status { source } => commands::save::status(&client, &tokens, source).await,
+            SaveAction::Status { json, source } => commands::save::status(&client, &tokens, json, source).await,
         },
         SubCommand::Mpsd { action } => match action {
             MpsdAction::List { source, template } => {

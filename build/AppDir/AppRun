@@ -6,7 +6,7 @@ export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
 export WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"
 
 # If invoked with CLI subcommands, route to xodus CLI
-if [ "$1" = "cli" ] || [ "$1" = "run" ] || [ "$1" = "auth" ] || [ "$1" = "save" ] || [ "$1" = "license" ] || [ "$1" = "status" ]; then
+if [ -n "$1" ] && [ "$1" != "gui" ] && [ "$1" != "--gui" ]; then
     if [ "$1" = "cli" ]; then shift; fi
     exec "${HERE}/usr/bin/xodus" "$@"
 fi

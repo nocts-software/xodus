@@ -28,9 +28,18 @@ cp target/release/xodus-service "$APP_DIR/usr/bin/"
 
 if [ -f "$SCRIPT_DIR/../xgameruntime/xgameruntime.dll.so" ]; then
     cp "$SCRIPT_DIR/../xgameruntime/xgameruntime.dll.so" "$APP_DIR/usr/lib/"
+    cp "$SCRIPT_DIR/../xgameruntime/xgameruntime.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
 fi
 if [ -f "$SCRIPT_DIR/../xgameruntime/twinapi.appcore.dll.so" ]; then
     cp "$SCRIPT_DIR/../xgameruntime/twinapi.appcore.dll.so" "$APP_DIR/usr/lib/"
+    cp "$SCRIPT_DIR/../xgameruntime/twinapi.appcore.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
+fi
+if [ -f "$SCRIPT_DIR/../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll" ]; then
+    cp "$SCRIPT_DIR/../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
+fi
+if [ -d "$SCRIPT_DIR/../xgameruntime/x86_64-unix" ]; then
+    mkdir -p "$APP_DIR/usr/lib/x86_64-unix"
+    cp -r "$SCRIPT_DIR/../xgameruntime/x86_64-unix/"* "$APP_DIR/usr/lib/x86_64-unix/" 2>/dev/null || true
 fi
 
 cp "$SCRIPT_DIR/crates/xodus-gui/xodus-gui.desktop" "$APP_DIR/"
@@ -47,7 +56,7 @@ export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
 export WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"
 
 # If invoked with CLI subcommands, route to xodus CLI
-if [ "$1" = "cli" ] || [ "$1" = "run" ] || [ "$1" = "auth" ] || [ "$1" = "save" ] || [ "$1" = "license" ] || [ "$1" = "status" ]; then
+if [ -n "$1" ] && [ "$1" != "gui" ] && [ "$1" != "--gui" ]; then
     if [ "$1" = "cli" ]; then shift; fi
     exec "${HERE}/usr/bin/xodus" "$@"
 fi

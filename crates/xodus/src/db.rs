@@ -426,22 +426,21 @@ impl Database {
     }
 
     pub fn save_user_entitlements(&self, xuid: &str, items: &[CachedEntitlement]) -> SqlResult<()> {
+        self.replace_user_entitlements(xuid, items)
+    }
+
+    pub fn replace_user_entitlements(&self, xuid: &str, items: &[CachedEntitlement]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         let now = Self::now_secs();
         
         let tx = conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM user_entitlements WHERE xuid = ?1", params![xuid])?;
         for it in items {
             tx.execute(
                 r#"
                 INSERT INTO user_entitlements (
                     xuid, product_id, sku_id, title, entitlement_type, acquired_date, updated_at
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                ON CONFLICT(xuid, product_id) DO UPDATE SET
-                    sku_id = excluded.sku_id,
-                    title = excluded.title,
-                    entitlement_type = excluded.entitlement_type,
-                    acquired_date = excluded.acquired_date,
-                    updated_at = excluded.updated_at
                 "#,
                 params![
                     xuid,
@@ -455,6 +454,16 @@ impl Database {
             )?;
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    pub fn clean_invalid_entitlements(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        // Purge any entitlements whose product_id is purely numeric or invalid format
+        conn.execute(
+            "DELETE FROM user_entitlements WHERE LENGTH(product_id) != 12 AND product_id GLOB '[0-9]*'",
+            [],
+        )?;
         Ok(())
     }
 

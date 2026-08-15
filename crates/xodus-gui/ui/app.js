@@ -4,313 +4,19 @@ const state = {
   activeTab: 'library',
   filter: 'all',
   searchQuery: '',
+  hasGamePassSubscription: false,
+  gamePassTier: null,
   user: {
-    gamertag: 'nocatix',
-    puid: '0003BFFDB416EF4E',
+    gamertag: 'Xbox Player',
+    puid: '',
     presence: 'Active',
-    gamerscore: '20227',
-    avatar: 'https://images-eds-ssl.xboxlive.com/image?url=8Oaj9Ryq1G1_p3lLnXlsaZgGzAie6Mnu24_PawYuDYIoH77pJ.X5Z.MqQPibUVTcS9jr0n8i7LY1tL3U7AiafQlcpGDAiHI1vgxmFGi1m3EKZRqEIJxcDZa.OAt89g5A&format=png',
+    gamerscore: '0',
+    avatar: 'https://assets.xboxservices.com/assets/default_avatar.png',
+    hasGamePass: false,
+    subscriptionTier: null,
   },
-  games: [
-    {
-      id: '77BB5AFB',
-      productId: '9N44Q5Q49DBC',
-      title: 'Brotato',
-      developer: 'Blobfish / Seaven Studio',
-      licenseType: 'owned',
-      installed: true,
-      size: '423.2 MB',
-      path: '/mnt/w11/XboxGames/Brotato',
-      cover: window.BROTATO_COVER || 'https://shared.steamstatic.com/store_item_assets/steam/apps/2042420/library_600x900.jpg',
-      splash: window.BROTATO_SPLASH || window.BROTATO_COVER,
-      cloudSynced: true,
-      lastPlayed: 'Today'
-    },
-    {
-      id: '4F56E789',
-      productId: '9PKX8Z3K73NP',
-      title: 'Hi-Fi RUSH',
-      developer: 'Tango Gameworks / Bethesda',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '14.2 GB',
-      path: '/mnt/w11/XboxGames/HiFiRush',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: '3 days ago'
-    },
-    {
-      id: '89ABCDEF',
-      productId: '9N6Z4S0B3RST',
-      title: 'Vampire Survivors',
-      developer: 'poncle',
-      licenseType: 'owned',
-      installed: false,
-      size: '512 MB',
-      path: '/mnt/w11/XboxGames/VampireSurvivors',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1794680/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: '1 week ago'
-    },
-    {
-      id: '9PW1QZCRRP82',
-      productId: '9PW1QZCRRP82',
-      title: 'Forza Horizon 5',
-      developer: 'Playground Games / Xbox Game Studios',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '110.4 GB',
-      path: '/mnt/w11/XboxGames/ForzaHorizon5',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1551360/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '2 weeks ago'
-    },
-    {
-      id: '9NCK5NRMN521',
-      productId: '9NCK5NRMN521',
-      title: 'Starfield',
-      developer: 'Bethesda Game Studios',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '125.8 GB',
-      path: '/mnt/w11/XboxGames/Starfield',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1716740/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '1 month ago'
-    },
-    {
-      id: '9PP5G1F0C2B6',
-      productId: '9PP5G1F0C2B6',
-      title: 'Halo Infinite',
-      developer: '343 Industries / Xbox Game Studios',
-      licenseType: 'owned',
-      installed: false,
-      size: '48.5 GB',
-      path: '/mnt/w11/XboxGames/HaloInfinite',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1240440/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: 'Last month'
-    },
-    {
-      id: '9P2N57MC619K',
-      productId: '9P2N57MC619K',
-      title: 'Sea of Thieves',
-      developer: 'Rare Ltd / Xbox Game Studios',
-      licenseType: 'gamepass',
-      installed: true,
-      size: '82.1 GB',
-      path: '/mnt/w11/XboxGames/Sea of Thieves',
-      cover: window.SOT_COVER || 'https://shared.steamstatic.com/store_item_assets/steam/apps/1172620/library_600x900.jpg',
-      splash: window.SOT_SPLASH || window.SOT_COVER,
-      cloudSynced: true,
-      lastPlayed: '3 weeks ago'
-    },
-    {
-      id: '9NBLGGH2JHXJ',
-      productId: '9NBLGGH2JHXJ',
-      title: 'Minecraft for Windows',
-      developer: 'Mojang Studios / Xbox Game Studios',
-      licenseType: 'owned',
-      installed: false,
-      size: '1.2 GB',
-      path: '/mnt/w11/XboxGames/Minecraft',
-      cover: 'https://store-images.s-microsoft.com/image/apps.415.13510798885735219.53a3b855-fde7-4304-925c-9db1cd1c34a8.b07e27c9-cdb1-4433-982b-7df0888f871c',
-      cloudSynced: true,
-      lastPlayed: 'Yesterday'
-    },
-    {
-      id: '9NZ5W0R3W4F5',
-      productId: '9NZ5W0R3W4F5',
-      title: 'Lies of P',
-      developer: 'NEOWIZ / Round8 Studio',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '35.6 GB',
-      path: '/mnt/w11/XboxGames/LiesOfP',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1627720/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: '2 months ago'
-    },
-    {
-      id: '9MZ16G7K0519',
-      productId: '9MZ16G7K0519',
-      title: 'Persona 3 Reload',
-      developer: 'ATLUS / SEGA',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '24.1 GB',
-      path: '/mnt/w11/XboxGames/Persona3Reload',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/2161700/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '5 days ago'
-    },
-    {
-      id: '9N49NZ9PZ59T',
-      productId: '9N49NZ9PZ59T',
-      title: 'Palworld',
-      developer: 'Pocketpair',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '18.3 GB',
-      path: '/mnt/w11/XboxGames/Palworld',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1623730/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: '3 weeks ago'
-    },
-    {
-      id: '9P5S26314HWQ',
-      productId: '9P5S26314HWQ',
-      title: 'DOOM Eternal: Standard Edition',
-      developer: 'id Software / Bethesda',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '78.4 GB',
-      path: '/mnt/w11/XboxGames/DoomEternal',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/782330/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '4 months ago'
-    },
-    {
-      id: '9NZ7K1Q5018W',
-      productId: '9NZ7K1Q5018W',
-      title: 'Microsoft Flight Simulator 2024',
-      developer: 'Asobo Studio / Xbox Game Studios',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '50.2 GB',
-      path: '/mnt/w11/XboxGames/MSFS2024',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1250410/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: 'New'
-    },
-    {
-      id: '9P1Z9N5L6F7M',
-      productId: '9P1Z9N5L6F7M',
-      title: 'Indiana Jones and the Great Circle',
-      developer: 'MachineGames / Bethesda',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '88.0 GB',
-      path: '/mnt/w11/XboxGames/IndianaJones',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/2677660/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: 'New'
-    },
-    {
-      id: '9N0B90L0151R',
-      productId: '9N0B90L0151R',
-      title: 'S.T.A.L.K.E.R. 2: Heart of Chornobyl',
-      developer: 'GSC Game World',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '142.5 GB',
-      path: '/mnt/w11/XboxGames/Stalker2',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1643320/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: 'New'
-    },
-    {
-      id: '9P8K317P7V2Z',
-      productId: '9P8K317P7V2Z',
-      title: 'Gears 5: Game of the Year Edition',
-      developer: 'The Coalition / Xbox Game Studios',
-      licenseType: 'owned',
-      installed: false,
-      size: '64.2 GB',
-      path: '/mnt/w11/XboxGames/Gears5',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1097840/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '6 months ago'
-    },
-    {
-      id: '9N19R5N8N5X3',
-      productId: '9N19R5N8N5X3',
-      title: 'DEATHLOOP',
-      developer: 'Arkane Studios / Bethesda',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '32.0 GB',
-      path: '/mnt/w11/XboxGames/Deathloop',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1252330/library_600x900.jpg',
-      cloudSynced: false,
-      lastPlayed: '2 months ago'
-    },
-    {
-      id: '9P5Z2P8L8L9L',
-      productId: '9P5Z2P8L8L9L',
-      title: 'Psychonauts 2',
-      developer: 'Double Fine Productions',
-      licenseType: 'owned',
-      installed: false,
-      size: '28.5 GB',
-      path: '/mnt/w11/XboxGames/Psychonauts2',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/607080/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '5 months ago'
-    },
-    {
-      id: '9NX78L88Q51K',
-      productId: '9NX78L88Q51K',
-      title: 'Age of Empires IV: Anniversary Edition',
-      developer: 'Relic Entertainment / World\'s Edge',
-      licenseType: 'gamepass',
-      installed: false,
-      size: '42.8 GB',
-      path: '/mnt/w11/XboxGames/AoE4',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1466860/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '1 month ago'
-    },
-    {
-      id: '9P4K39185NWL',
-      productId: '9P4K39185NWL',
-      title: 'Dead Cells',
-      developer: 'Motion Twin',
-      licenseType: 'owned',
-      installed: false,
-      size: '2.1 GB',
-      path: '/mnt/w11/XboxGames/DeadCells',
-      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/588650/library_600x900.jpg',
-      cloudSynced: true,
-      lastPlayed: '3 weeks ago'
-    }
-  ],
-  friends: [
-    {
-      xuid: '2533274991823401',
-      gamertag: 'ShadowRunner',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=128&auto=format&fit=crop&q=80',
-      state: 'In-Game',
-      richPresence: 'Playing Brotato (Wave 17)',
-      gameTitle: 'Brotato',
-      gameId: '77BB5AFB',
-      canJoin: true
-    },
-    {
-      xuid: '2533274889102345',
-      gamertag: 'Valkyrie99',
-      avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=128&auto=format&fit=crop&q=80',
-      state: 'Online',
-      richPresence: 'Online • Home Screen',
-      canJoin: false
-    },
-    {
-      xuid: '2533274776109923',
-      gamertag: 'PixelKnight',
-      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=128&auto=format&fit=crop&q=80',
-      state: 'Away',
-      richPresence: 'Away (15m)',
-      canJoin: false
-    },
-    {
-      xuid: '2533274665401129',
-      gamertag: 'CyberNova',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=128&auto=format&fit=crop&q=80',
-      state: 'Offline',
-      richPresence: 'Last seen 2h ago',
-      canJoin: false
-    }
-  ]
+  games: [],
+  friends: []
 };
 
 // Initialize Application
@@ -321,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCustomDropdowns();
   setupSearchAndFilters();
   renderUser();
+  updateGamePassVisibility();
   renderGames();
   renderSaves();
   renderFriends();
@@ -495,6 +202,55 @@ function renderUser() {
     const scoreVal = parseInt(state.user.gamerscore, 10);
     scoreEl.textContent = isNaN(scoreVal) ? state.user.gamerscore : scoreVal.toLocaleString();
   }
+
+  // Render Game Pass Tier in User Profile Box
+  const gpBadge = document.getElementById('userGamePassBadge');
+  const gpTierText = document.getElementById('userGamePassTierText');
+  const hasGP = !!state.hasGamePassSubscription || !!(state.user && state.user.hasGamePass);
+  const rawTier = state.gamePassTier || (state.user && state.user.subscriptionTier);
+  const tier = rawTier || (hasGP ? 'PC Game Pass' : null);
+
+  if (gpBadge && gpTierText) {
+    if (hasGP && tier) {
+      gpBadge.style.display = 'inline-flex';
+      gpTierText.textContent = tier;
+      if (tier.toLowerCase().includes('ultimate')) {
+        gpBadge.className = 'user-gp-badge tier-ultimate';
+      } else {
+        gpBadge.className = 'user-gp-badge';
+      }
+    } else {
+      gpBadge.style.display = 'none';
+    }
+  }
+}
+
+function updateGamePassVisibility() {
+  const hasGP = !!state.hasGamePassSubscription || !!(state.user && state.user.hasGamePass);
+
+  // Sidebar Game Pass Navigation Item
+  const gpNavItem = document.getElementById('navItemGamePass');
+  if (gpNavItem) {
+    gpNavItem.style.display = hasGP ? 'flex' : 'none';
+  }
+
+  // Filter Pill in Library View
+  const gpFilterPill = document.getElementById('filterPillGamePass');
+  if (gpFilterPill) {
+    gpFilterPill.style.display = hasGP ? 'inline-flex' : 'none';
+  }
+
+  // If user does not have Game Pass and is currently on gamepass filter or tab, reset to all
+  if (!hasGP) {
+    if (state.filter === 'gamepass') {
+      state.filter = 'all';
+      const pills = document.querySelectorAll('#filterPills .pill');
+      pills.forEach(p => p.classList.toggle('active', p.getAttribute('data-filter') === 'all'));
+    }
+    if (state.activeTab === 'gamepass') {
+      switchTab('library');
+    }
+  }
 }
 
 function renderSidebarInstalled() {
@@ -556,7 +312,7 @@ function updateHeroBanner(game) {
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
           </svg>
-          <span>Play In-Place</span>
+          <span>Play</span>
         </button>
         <button class="btn btn-secondary btn-lg" onclick="syncGameSaves('${game.path}')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -574,12 +330,6 @@ function updateHeroBanner(game) {
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           <span>Install Game</span>
-        </button>
-        <button class="btn btn-secondary btn-lg" onclick="showToast('Verifying ${game.title} digital license...')">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
-          <span>License Details</span>
         </button>
       `;
     }
@@ -767,9 +517,26 @@ function renderFriends() {
 
 // Actions & Handlers
 function launchGame(title, path) {
-  showToast(`Launching ${title} with Proton CachyOS...`);
+  showToast(`Checking cloud saves for ${title}...`);
   sendNativeCommand({ cmd: 'launch_game', path: path });
 }
+
+window.showCloudSyncDialog = function(path, localInfo, cloudInfo) {
+  const modal = document.getElementById('cloudSyncModal');
+  document.getElementById('localSaveInfo').innerText = localInfo;
+  document.getElementById('cloudSaveInfo').innerText = cloudInfo;
+  modal.dataset.path = path;
+  modal.style.display = 'flex';
+};
+
+window.resolveSaveConflict = function(choice) {
+  const modal = document.getElementById('cloudSyncModal');
+  const path = modal.dataset.path;
+  modal.style.display = 'none';
+  
+  showToast(choice === 'cloud' ? 'Downloading cloud save & launching...' : 'Uploading local save & launching...');
+  sendNativeCommand({ cmd: 'resolve_save_conflict', path: path, choice: choice });
+};
 
 function installGame(title, path) {
   const game = state.games.find(g => g.title === title || g.path === path);
@@ -778,29 +545,14 @@ function installGame(title, path) {
     return;
   }
 
-  showToast(`Initiating MSIXVC package download for ${title}...`);
-  let progress = 0;
-  showProgress(`Connecting to Microsoft Delivery Optimization...`, 5);
-  sendNativeCommand({ cmd: 'download_game', title: title, path: path });
-
-  const interval = setInterval(() => {
-    progress += Math.floor(Math.random() * 12) + 8;
-    if (progress >= 100) {
-      clearInterval(interval);
-      showProgress(`Finished downloading ${title}`, 100, 'Complete');
-      setTimeout(() => {
-        hideProgress();
-        showToast(`${title} installed and verified ready to play!`);
-        if (game) {
-          game.installed = true;
-          renderGames();
-          updateHeroBanner(game);
-        }
-      }, 1000);
-    } else {
-      showProgress(`Downloading & Decrypting ${title} via MSIXVC...`, progress, `${(28.4 + Math.random() * 8).toFixed(1)} MB/s`);
-    }
-  }, 250);
+  showToast(`Connecting to Microsoft Delivery Optimization for ${title}...`);
+  showProgress(`Connecting to Microsoft Delivery Optimization...`, 5, 'Connecting');
+  sendNativeCommand({
+    cmd: 'install_game',
+    title: title,
+    productId: game ? (game.productId || game.id) : '',
+    path: path
+  });
 }
 
 
@@ -888,22 +640,76 @@ function setupIPCBridge() {
     if (profile) {
       if (profile.gamertag) state.user.gamertag = profile.gamertag;
       if (profile.displayPic) state.user.avatar = profile.displayPic;
+      if (profile.displayPicRaw) state.user.avatar = profile.displayPicRaw;
       if (profile.display_pic) state.user.avatar = profile.display_pic;
       if (profile.gamerscore) state.user.gamerscore = profile.gamerscore;
+      if (profile.gamerScore) state.user.gamerscore = profile.gamerScore;
+      if (profile.hasGamePass !== undefined) {
+        state.hasGamePassSubscription = !!profile.hasGamePass;
+        state.user.hasGamePass = !!profile.hasGamePass;
+      }
+      if (profile.subscriptionTier !== undefined) {
+        state.gamePassTier = profile.subscriptionTier;
+        state.user.subscriptionTier = profile.subscriptionTier;
+      }
       renderUser();
+      updateGamePassVisibility();
       showToast(`Welcome back, ${state.user.gamertag}!`);
     }
   };
 
-  window.setGamePassStatus = (hasSubscription) => {
+  window.setGamePassStatus = (hasSubscription, tier) => {
     state.hasGamePassSubscription = !!hasSubscription;
-    console.log('[XODUS] PC Game Pass Active:', state.hasGamePassSubscription);
+    state.user.hasGamePass = !!hasSubscription;
+    if (tier !== undefined) {
+      state.gamePassTier = tier;
+      state.user.subscriptionTier = tier;
+    }
+    console.log('[XODUS] Game Pass Status:', state.hasGamePassSubscription, 'Tier:', state.gamePassTier);
+    renderUser();
+    updateGamePassVisibility();
     renderGames();
   };
 
+function getEditionTier(title) {
+  const lower = (title || '').toLowerCase();
+  if (lower.includes('ultimate') || lower.includes('complete') || lower.includes('anniversary') || lower.includes('collector')) {
+    return 4;
+  } else if (lower.includes('premium') || lower.includes('gold')) {
+    return 3;
+  } else if (lower.includes('deluxe')) {
+    return 2;
+  } else if (lower.includes('enhanced') || lower.includes('special') || lower.includes('day one')) {
+    return 1;
+  }
+  return 0; // Standard / Base
+}
+
   window.setLibraryData = (gamesList) => {
     if (Array.isArray(gamesList) && gamesList.length > 0) {
-      const processed = gamesList.map(g => {
+      const uniqueMap = new Map();
+
+      gamesList.forEach(g => {
+        if (!g.title) return;
+        const titleLower = g.title.toLowerCase().trim();
+        if (titleLower === 'gamesave' || titleLower === 'wgs' || titleLower === 'msixvc' || titleLower.startsWith('.')) return;
+
+        let norm = titleLower
+          .replace(/ - windows/g, '')
+          .replace(/ \(windows\)/g, '')
+          .replace(/ - pc/g, '')
+          .replace(/ \(pc\)/g, '')
+          .replace(/ - xbox series x\|s/g, '')
+          .replace(/ - xbox one/g, '')
+          .replace(/ windows 10 edition/g, '')
+          .replace(/ windows edition/g, '')
+          .replace(/: 2026 edition/g, '')
+          .replace(/: 2025 edition/g, '')
+          .replace(/: 2024 edition/g, '')
+          .replace(/ standard edition/g, '')
+          .replace(/ digital edition/g, '')
+          .trim();
+
         if (g.title === 'Brotato' && window.BROTATO_COVER) {
           g.cover = window.BROTATO_COVER;
           g.splash = window.BROTATO_SPLASH || window.BROTATO_COVER;
@@ -911,16 +717,98 @@ function setupIPCBridge() {
           g.cover = window.SOT_COVER;
           g.splash = window.SOT_SPLASH || window.SOT_COVER;
         }
-        return g;
+
+        if (uniqueMap.has(norm)) {
+          const existing = uniqueMap.get(norm);
+          const existingTier = getEditionTier(existing.title);
+          const gTier = getEditionTier(g.title);
+
+          const isGInstalled = g.installed;
+          const isExistingInstalled = existing.installed;
+
+          if (existing.licenseType === 'owned' && g.licenseType === 'gamepass') {
+            if (state.hasGamePassSubscription && gTier > existingTier) {
+              // Game Pass has higher edition tier (e.g. Deluxe vs Standard) and user has active Game Pass
+              const wasInstalled = isExistingInstalled || isGInstalled;
+              const path = isGInstalled ? g.path : existing.path;
+              Object.assign(existing, g);
+              existing.installed = wasInstalled;
+              existing.path = path;
+            } else {
+              // Otherwise, always prefer owned license!
+              if (isGInstalled) { existing.installed = true; existing.path = g.path; }
+            }
+          } else if (existing.licenseType === 'gamepass' && g.licenseType === 'owned') {
+            if (state.hasGamePassSubscription && existingTier > gTier) {
+              // Game Pass in map has higher tier edition than owned
+              if (isGInstalled) { existing.installed = true; existing.path = g.path; }
+            } else {
+              // Otherwise, prefer owned license!
+              const wasInstalled = isExistingInstalled || isGInstalled;
+              const path = isGInstalled ? g.path : existing.path;
+              Object.assign(existing, g);
+              existing.licenseType = 'owned';
+              existing.installed = wasInstalled;
+              existing.path = path;
+            }
+          } else {
+            // Both owned or both gamepass
+            if (gTier > existingTier || (!existing.installed && g.installed)) {
+              const wasOwned = existing.licenseType === 'owned' || g.licenseType === 'owned';
+              Object.assign(existing, g);
+              if (wasOwned) existing.licenseType = 'owned';
+            }
+          }
+
+          if (g.productId && g.productId.length === 12 && (!existing.productId || existing.productId.length !== 12)) {
+            existing.productId = g.productId;
+            existing.id = g.productId;
+          }
+          if ((!existing.developer || existing.developer === 'Xbox Game Studios' || existing.developer === 'Local Game Container' || existing.developer === 'Local Game') && g.developer) {
+            existing.developer = g.developer;
+          }
+          if (existing.cover && existing.cover.includes('library_600x900.jpg') && g.cover && !g.cover.includes('library_600x900.jpg')) {
+            existing.cover = g.cover;
+          }
+        } else {
+          uniqueMap.set(norm, g);
+        }
       });
 
-      state.games = processed;
+      state.games = Array.from(uniqueMap.values());
       renderGames();
       renderSaves();
       if (state.games.length > 0) {
         updateHeroBanner(state.games.find(g => g.installed) || state.games[0]);
       }
       showToast(`Synchronized ${state.games.length} titles from Microsoft Collections & Game Pass`);
+    }
+  };
+
+  window.updateDownloadProgress = (title, percent, speed) => {
+    showProgress(`Downloading ${title} via MSIXVC...`, percent, speed || '32.4 MB/s');
+  };
+
+  window.onInstallError = (title, msg) => {
+    hideProgress();
+    showToast(msg || `Failed to install ${title}`);
+    const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.installed = false;
+      renderGames();
+      updateHeroBanner(game);
+    }
+  };
+
+  window.onInstallComplete = (title, path) => {
+    hideProgress();
+    showToast(`${title} installed and verified ready to play!`);
+    const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.installed = true;
+      if (path) game.path = path;
+      renderGames();
+      updateHeroBanner(game);
     }
   };
 
@@ -933,41 +821,45 @@ function setupIPCBridge() {
   };
 
   window.setFriendsData = (friendsList) => {
-    if (Array.isArray(friendsList) && friendsList.length > 0) {
-      state.friends = friendsList.map(f => {
-        let stateStr = 'Offline';
-        let richPresence = f.presenceText || (f.presence_text || 'Offline');
-        let canJoin = false;
-        let gameTitle = '';
-        let gameId = '';
+    if (Array.isArray(friendsList)) {
+      if (friendsList.length === 0) {
+        state.friends = [];
+      } else {
+        state.friends = friendsList.map(f => {
+          let stateStr = 'Offline';
+          let richPresence = f.presenceText || (f.presence_text || 'Offline');
+          let canJoin = false;
+          let gameTitle = '';
+          let gameId = '';
 
-        if (f.presenceState === 'Online' || f.presence_state === 'Online') {
-          stateStr = 'Online';
-        }
-
-        const details = f.presenceDetails || f.presence_details || [];
-        if (details.length > 0) {
-          const d = details[0];
-          if (d.titleName || d.title_name) {
-            stateStr = 'In-Game';
-            gameTitle = d.titleName || d.title_name;
-            gameId = d.titleId || d.title_id || '';
-            richPresence = `Playing ${gameTitle}`;
-            canJoin = true;
+          if (f.presenceState === 'Online' || f.presence_state === 'Online') {
+            stateStr = 'Online';
           }
-        }
 
-        return {
-          xuid: f.xuid,
-          gamertag: f.gamertag || f.Gamertag || 'Xbox Friend',
-          avatar: f.displayPicRaw || f.display_pic_raw || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=128&auto=format&fit=crop&q=80',
-          state: stateStr,
-          richPresence: richPresence,
-          gameTitle: gameTitle,
-          gameId: gameId,
-          canJoin: canJoin
-        };
-      });
+          const details = f.presenceDetails || f.presence_details || [];
+          if (details.length > 0) {
+            const d = details[0];
+            if (d.titleName || d.title_name) {
+              stateStr = 'In-Game';
+              gameTitle = d.titleName || d.title_name;
+              gameId = d.titleId || d.title_id || '';
+              richPresence = `Playing ${gameTitle}`;
+              canJoin = true;
+            }
+          }
+
+          return {
+            xuid: f.xuid,
+            gamertag: f.gamertag || f.Gamertag || 'Xbox Friend',
+            avatar: f.displayPicRaw || f.display_pic_raw || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=128&auto=format&fit=crop&q=80',
+            state: stateStr,
+            richPresence: richPresence,
+            gameTitle: gameTitle,
+            gameId: gameId,
+            canJoin: canJoin
+          };
+        });
+      }
       renderFriends();
     }
   };

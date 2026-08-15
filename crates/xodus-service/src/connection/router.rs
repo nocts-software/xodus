@@ -24,6 +24,9 @@ pub async fn route(
         }
         let read = socket.read_exact(&mut read_magic).await;
         if let Err(err) = read {
+            if err.kind() == tokio::io::ErrorKind::UnexpectedEof {
+                return;
+            }
             log::error!("Failed to read magic: {err:?}");
             return;
         }

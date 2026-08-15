@@ -88,8 +88,9 @@ pub async fn get_packages(
         return Err(Box::new(std::io::Error::other("Unsupported user token")));
     };
 
-    let xsts_token =
-        xodus::api::xbox::run(client, dev_token, legacy, "http://update.xboxlive.com").await;
+    let xsts_token = xodus::api::xbox::run(client, dev_token, legacy, "http://update.xboxlive.com")
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let response = client
         .get(format!(
@@ -101,10 +102,9 @@ pub async fn get_packages(
             xodus::api::xbox::get_xsts_auth_header(xsts_token),
         )
         .send()
-        .await
-        .unwrap();
+        .await?;
 
-    let res: PackageResponse = response.json().await.expect("Failed to get data");
+    let res: PackageResponse = response.json().await?;
 
     let PackageResponse::Found(package) = res else {
         return Err(Box::new(std::io::Error::other(

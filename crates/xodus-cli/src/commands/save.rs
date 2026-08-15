@@ -146,12 +146,22 @@ pub async fn push(client: &reqwest::Client, tokens: &TokenManager, source: Strin
     ExitCode::SUCCESS
 }
 
-pub async fn status(client: &reqwest::Client, tokens: &TokenManager, source: String) -> ExitCode {
-    println!("Checking Xbox Live cloud save status for: {source}");
+struct BlobInfo {
+    name: String,
+    size: u64,
+    etag: Option<String>,
+}
+
+pub async fn status(client: &reqwest::Client, tokens: &TokenManager, json: bool, source: String) -> ExitCode {
+    if !json {
+        println!("Checking Xbox Live cloud save status for: {source}");
+    }
     let (scid, xuid) = match resolve_scid_and_xuid(tokens, &source).await {
         Ok(res) => res,
         Err(e) => {
-            eprintln!("Failed to resolve title metadata: {e}");
+            if !json {
+                eprintln!("Failed to resolve title metadata: {e}");
+            }
             return ExitCode::FAILURE;
         }
     };
@@ -162,30 +172,91 @@ pub async fn status(client: &reqwest::Client, tokens: &TokenManager, source: Str
         .join(&scid)
         .join("1");
 
-    println!("Local Save Path: {save_dir:?}");
+    let mut local_blobs = Vec::new();
     if save_dir.exists() {
         if let Ok(mut entries) = tokio::fs::read_dir(&save_dir).await {
-            println!("Local Blobs:");
             while let Ok(Some(entry)) = entries.next_entry().await {
                 if let Ok(meta) = entry.metadata().await {
-                    println!("  - {:<24} ({} bytes, modified: {:?})", entry.file_name().to_string_lossy(), meta.len(), meta.modified().ok());
+                    local_blobs.push(BlobInfo {
+                        name: entry.file_name().to_string_lossy().to_string(),
+                        size: meta.len(),
+                        etag: None,
+                    });
                 }
             }
         }
-    } else {
-        println!("  (No local saves found)");
     }
 
+    let mut remote_blobs = Vec::new();
+    let mut api_error = None;
     if let Ok(xsts) = get_or_request_xsts(client, tokens, "http://xboxlive.com").await {
         let auth_header = get_xsts_auth_header(xsts);
         let storage = TitleStorageClient::new(client);
-        if let Ok(list) = storage.list_user_blobs(&auth_header, &scid, &xuid, "").await {
+        match storage.list_user_blobs(&auth_header, &scid, &xuid, "").await {
+            Ok(list) => {
+                for blob in list.blobs {
+                    remote_blobs.push(BlobInfo {
+                        name: blob.file_name,
+                        size: blob.length,
+                        etag: Some(blob.etag.unwrap_or_default()),
+                    });
+                }
+            }
+            Err(e) => {
+                api_error = Some(e);
+            }
+        }
+    }
+
+    let mut discrepancy = false;
+    if local_blobs.len() != remote_blobs.len() {
+        discrepancy = true;
+    } else {
+        // Simple heuristic: if any sizes mismatch for the same file
+        for local in &local_blobs {
+            if let Some(remote) = remote_blobs.iter().find(|r| r.name == local.name) {
+                if remote.size != local.size {
+                    discrepancy = true;
+                    break;
+                }
+            } else {
+                discrepancy = true;
+                break;
+            }
+        }
+    }
+
+    if json {
+        let local_json: Vec<_> = local_blobs.iter().map(|b| serde_json::json!({"name": b.name, "size": b.size, "etag": b.etag})).collect();
+        let remote_json: Vec<_> = remote_blobs.iter().map(|b| serde_json::json!({"name": b.name, "size": b.size, "etag": b.etag})).collect();
+        let out = serde_json::json!({
+            "local_blobs": local_json,
+            "remote_blobs": remote_json,
+            "discrepancy": discrepancy
+        });
+        if let Ok(s) = serde_json::to_string_pretty(&out) {
+            println!("{}", s);
+        }
+    } else {
+        println!("Local Save Path: {save_dir:?}");
+        if local_blobs.is_empty() {
+            println!("  (No local saves found)");
+        } else {
+            println!("Local Blobs:");
+            for b in &local_blobs {
+                println!("  - {:<24} ({} bytes)", b.name, b.size);
+            }
+        }
+
+        if let Some(e) = api_error {
+            println!("ERROR: {:?}", e);
+        } else {
             println!("\nRemote Cloud Blobs (titlestorage.xboxlive.com):");
-            if list.blobs.is_empty() {
+            if remote_blobs.is_empty() {
                 println!("  (No remote blobs found)");
             } else {
-                for blob in list.blobs {
-                    println!("  - {:<24} ({} bytes, etag: {:?})", blob.file_name, blob.length, blob.etag);
+                for b in &remote_blobs {
+                    println!("  - {:<24} ({} bytes, etag: {:?})", b.name, b.size, b.etag);
                 }
             }
         }

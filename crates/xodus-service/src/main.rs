@@ -21,7 +21,7 @@ async fn main() {
         panic!("Device token isnt legacy")
     };
 
-    env_logger::init_from_env("XODUS_LOG");
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,xodus=debug,xodus_service=debug")).init();
     let runtime_dir = utils::get_runtime_dir();
     let cancellation = CancellationToken::new();
     let socket_path = format!("{runtime_dir}/xodus.sock");
@@ -33,10 +33,16 @@ async fn main() {
         trigger.cancel();
     });
     {
+        let _ = tokio::fs::remove_file(&socket_path).await;
+        let _ = tokio::fs::remove_file("/tmp/xodus.sock").await;
         let listener = UnixListener::bind(&socket_path).expect("Unable to bind to socket");
+        log::info!("[XODUS-SERVICE] Bound successfully to Unix socket at {socket_path}");
         let mode = 0o600;
         let perms = Permissions::from_mode(mode);
         _ = tokio::fs::set_permissions(&socket_path, perms).await;
+        if socket_path != "/tmp/xodus.sock" {
+            let _ = tokio::fs::symlink(&socket_path, "/tmp/xodus.sock").await;
+        }
         loop {
             let accept = tokio::select! {
                 r = listener.accept() => r,
@@ -54,4 +60,5 @@ async fn main() {
     }
 
     _ = tokio::fs::remove_file(socket_path).await;
+    _ = tokio::fs::remove_file("/tmp/xodus.sock").await;
 }

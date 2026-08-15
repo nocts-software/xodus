@@ -20,32 +20,31 @@ pub async fn handle(
     socket: &mut tokio::net::UnixStream,
     context: &mut SimpleContext,
 ) -> tokio::io::Result<()> {
-    loop {
-        let mut len_bytes = [0u8; 4];
-        if let Err(e) = socket.read_exact(&mut len_bytes).await {
-            if e.kind() == tokio::io::ErrorKind::UnexpectedEof {
-                return Ok(());
-            }
-            return Err(e);
+    let mut len_bytes = [0u8; 4];
+    if let Err(e) = socket.read_exact(&mut len_bytes).await {
+        if e.kind() == tokio::io::ErrorKind::UnexpectedEof {
+            return Ok(());
         }
-        let len = u32::from_le_bytes(len_bytes) as usize;
-        if len > 10 * 1024 * 1024 {
-            return Err(tokio::io::Error::new(
-                tokio::io::ErrorKind::InvalidData,
-                "Payload too large",
-            ));
+        return Err(e);
+    }
+    let len = u32::from_le_bytes(len_bytes) as usize;
+    if len > 10 * 1024 * 1024 {
+        return Err(tokio::io::Error::new(
+            tokio::io::ErrorKind::InvalidData,
+            "Payload too large",
+        ));
+    }
+
+    let mut buf = vec![0u8; len];
+    socket.read_exact(&mut buf).await?;
+
+    let msg = match XodusMessage::decode(&buf[..]) {
+        Ok(m) => m,
+        Err(err) => {
+            log::error!("Failed to decode XodusMessage: {err}");
+            return Ok(());
         }
-
-        let mut buf = vec![0u8; len];
-        socket.read_exact(&mut buf).await?;
-
-        let msg = match XodusMessage::decode(&buf[..]) {
-            Ok(m) => m,
-            Err(err) => {
-                log::error!("Failed to decode XodusMessage: {err}");
-                continue;
-            }
-        };
+    };
 
         let request_id = msg.request_id;
         let (resp_type, resp_payload) = match XodusMessageType::try_from(msg.msg_type) {
@@ -53,20 +52,44 @@ pub async fn handle(
 
             Ok(XodusMessageType::XuserAddRequest) => {
                 let _req = XUserAddRequest::decode(&msg.payload[..]).ok();
+                log::info!("[XODUS-SERVICE] Processing XuserAddRequest from client game...");
+                let (xuid, gamertag) = match xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), "http://xboxlive.com").await {
+                    Ok(xsts) => {
+                        let xuid = xsts.xuid().map(|s| s.to_string()).unwrap_or_else(|| "2533274839201029".to_string());
+                        let gamertag = xsts.gamertag().map(|s| s.to_string()).unwrap_or_else(|| "XodusUser".to_string());
+                        log::info!("[XODUS-SERVICE] XuserAddRequest resolved live user: XUID={xuid}, Gamertag={gamertag}");
+                        (xuid, gamertag)
+                    }
+                    Err(e) => {
+                        log::warn!("[XODUS-SERVICE] XuserAddRequest: error fetching live xsts: {e}, falling back to legacy token cache");
+                        let default_xuid = "2533274839201029".to_string();
+                        let default_gt = "XodusUser".to_string();
+                        (default_xuid, default_gt)
+                    }
+                };
                 let resp = XUserAddResponse {
                     status: 0, // S_OK
                     user_id: 1,
-                    xuid: "2533274839201029".to_string(),
-                    gamertag: "XodusUser".to_string(),
+                    xuid: xuid.clone(),
+                    gamertag: gamertag.clone(),
                 };
+                log::info!("[XODUS-SERVICE] Responding to XuserAddRequest: user_id=1, XUID={xuid}, Gamertag={gamertag}");
                 (XodusMessageType::XuserAddResponse, resp.encode_to_vec())
             }
 
             Ok(XodusMessageType::XuserGetGamertagRequest) => {
                 let _req = XUserGetGamertagRequest::decode(&msg.payload[..]).ok();
+                let gamertag = match xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), "http://xboxlive.com").await {
+                    Ok(xsts) => xsts.gamertag().map(|s| s.to_string()).unwrap_or_else(|| "XodusUser".to_string()),
+                    Err(e) => {
+                        log::warn!("[XODUS-SERVICE] XuserGetGamertagRequest: failed to get XSTS: {e}");
+                        "XodusUser".to_string()
+                    }
+                };
+                log::info!("[XODUS-SERVICE] Responding to XuserGetGamertagRequest: Gamertag={gamertag}");
                 let resp = XUserGetGamertagResponse {
                     status: 0,
-                    gamertag: "XodusUser".to_string(),
+                    gamertag,
                 };
                 (
                     XodusMessageType::XuserGetGamertagResponse,
@@ -76,14 +99,49 @@ pub async fn handle(
 
             Ok(XodusMessageType::XuserGetTokenRequest) => {
                 let req = XUserGetTokenRequest::decode(&msg.payload[..]).ok();
-                let relying_party = req
-                    .map(|r| r.relying_party)
+                let raw_relying_party = req
+                    .and_then(|r| if r.relying_party.is_empty() { None } else { Some(r.relying_party) })
                     .unwrap_or_else(|| "http://xboxlive.com".to_string());
-                let _rp = relying_party;
-                let token = match context.tokens().get_user_sts_token() {
-                    Ok(xodus::models::secrets::Token::Legacy(tok)) => tok.token,
-                    _ => "MOCK_XSTS_TOKEN".to_string(),
+
+                log::info!("[XODUS-SERVICE] Processing XuserGetTokenRequest for raw relying party: '{raw_relying_party}'");
+
+                // Sanitize relying party (if full URL, extract scheme + host)
+                let sanitized_rp = if let Some(scheme_idx) = raw_relying_party.find("://") {
+                    let after_scheme = &raw_relying_party[scheme_idx + 3..];
+                    let host = after_scheme.split('/').next().unwrap_or(after_scheme);
+                    let scheme = &raw_relying_party[..scheme_idx];
+                    format!("{scheme}://{host}")
+                } else {
+                    raw_relying_party.clone()
                 };
+
+                let mut token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &sanitized_rp).await;
+
+                if token_res.is_err() && sanitized_rp != raw_relying_party {
+                    log::warn!("[XODUS-SERVICE] Sanitized RP '{sanitized_rp}' failed, retrying with raw RP '{raw_relying_party}'...");
+                    token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &raw_relying_party).await;
+                }
+
+                if token_res.is_err() && sanitized_rp != "http://xboxlive.com" && raw_relying_party != "http://xboxlive.com" {
+                    log::warn!("[XODUS-SERVICE] Specific RP failed, falling back to standard http://xboxlive.com...");
+                    token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), "http://xboxlive.com").await;
+                }
+
+                let token = match token_res {
+                    Ok(xsts) => {
+                        let header = xodus::api::xbox::get_xsts_auth_header(xsts);
+                        log::info!("[XODUS-SERVICE] Successfully generated valid XSTS auth header (length: {})", header.len());
+                        header
+                    }
+                    Err(err) => {
+                        log::error!("[XODUS-SERVICE] All XSTS token acquisition attempts failed: {err}");
+                        match context.tokens().get_user_sts_token() {
+                            Ok(xodus::models::secrets::Token::Legacy(tok)) => tok.token,
+                            _ => "MOCK_XSTS_TOKEN".to_string(),
+                        }
+                    }
+                };
+
                 let resp = XUserGetTokenResponse {
                     status: 0,
                     token,
@@ -251,7 +309,7 @@ pub async fn handle(
             _ => {
 
                 log::warn!("Unhandled message type: {}", msg.msg_type);
-                continue;
+                return Ok(());
             }
         };
 
@@ -267,7 +325,7 @@ pub async fn handle(
         socket.write_all(&resp_len).await?;
         socket.write_all(&encoded).await?;
         socket.flush().await?;
-    }
+        Ok(())
 }
 
 fn get_save_blob_path(scid: &str, user_id: u64, container: &str, blob: &str) -> std::path::PathBuf {

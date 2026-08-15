@@ -13,7 +13,8 @@ pub mod titlestorage;
 pub use auth::{authenticate_xbox_user, get_xsts_auth_header, request_xsts_token};
 pub use collections::{
     check_user_gamepass_subscription, enrich_products_catalog, get_gamepass_catalog_ids,
-    get_gamepass_sigl_ids, get_user_collections, CollectionItem, GameCatalogItem,
+    get_gamepass_sigl_ids, get_user_collections, get_user_owned_catalog_items, CollectionItem,
+    GameCatalogItem, DEFAULT_COVER_URL,
 };
 
 
@@ -31,7 +32,7 @@ pub async fn run(
     dev_token: LegacyToken,
     legacy: LegacyToken,
     relying_party: &str,
-) -> XstsResponse {
+) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
     let user_token = crate::api::live::exchange_user_token(
         client,
         legacy,
@@ -45,13 +46,11 @@ pub async fn run(
             Some(soap::PolicyReference::mbi_ssl()),
         )],
     )
-    .await
-    .expect("Failed to get ms user token");
+    .await?;
 
     let user_token: Token = match user_token {
-        ExchangeUserTokenOutcome::Fault(_) => {
-            eprintln!("Failed to get exchange MS token");
-            panic!("TODO");
+        ExchangeUserTokenOutcome::Fault(f) => {
+            return Err(format!("Failed to get exchange MS token: {f:?}").into());
         }
         ExchangeUserTokenOutcome::Issued(
             soap::BodyContent::RequestSecurityTokenResponseCollection(mut collection),
@@ -62,19 +61,15 @@ pub async fn run(
         ExchangeUserTokenOutcome::Issued(soap::BodyContent::RequestSecurityTokenResponse(
             token,
         )) => (*token).into(),
-        _ => unreachable!("Only responses are handled"),
+        _ => return Err("Only responses are handled".into()),
     };
     let Token::Compact(user_token) = user_token else {
-        eprintln!("Unsupported token");
-        panic!("TODO");
+        return Err("Unsupported token".into());
     };
-    let resp = authenticate_xbox_user(client, user_token)
-        .await
-        .expect("Failed to authenticate Xbox user");
+    let resp = authenticate_xbox_user(client, user_token).await?;
 
-    request_xsts_token(client, resp.token, relying_party)
-        .await
-        .expect("Failed to authenticate Xbox user")
+    let xsts = request_xsts_token(client, resp.token, relying_party).await?;
+    Ok(xsts)
 }
 
 pub async fn get_or_request_xsts(
@@ -93,7 +88,7 @@ pub async fn get_or_request_xsts(
     let Token::Legacy(user_token) = tokens.get_user_sts_token()? else {
         return Err("User token is not legacy".into());
     };
-    let xsts = run(client, dev_token, user_token, relying_party).await;
+    let xsts = run(client, dev_token, user_token, relying_party).await?;
     tokens.cache_xsts(relying_party, &xsts);
     Ok(xsts)
 }
