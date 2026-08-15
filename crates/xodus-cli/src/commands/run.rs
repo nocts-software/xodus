@@ -577,22 +577,80 @@ pub async fn run(
     };
 
     let proton_binary = {
-        let candidates = [
-            PathBuf::from("/usr/share/steam/compatibilitytools.d/proton-cachyos-native/proton"),
-            PathBuf::from(format!("{}/.local/share/Steam/compatibilitytools.d/proton-cachyos-native/proton", home)),
-            PathBuf::from("/usr/share/steam/compatibilitytools.d/GE-Proton11-3/proton"),
-        ];
+        let mut candidates = Vec::new();
+        if let Ok(p) = std::env::var("PROTON_PATH") {
+            candidates.push(PathBuf::from(p));
+        }
+        candidates.push(PathBuf::from("/usr/share/steam/compatibilitytools.d/proton-cachyos-native/proton"));
+        candidates.push(PathBuf::from(format!("{}/.local/share/Steam/compatibilitytools.d/proton-cachyos-native/proton", home)));
+        candidates.push(PathBuf::from("/usr/share/steam/compatibilitytools.d/GE-Proton11-3/proton"));
+
+        // Scan Steam & system compatibilitytools.d directories
+        for base in [
+            format!("{}/.local/share/Steam/compatibilitytools.d", home),
+            format!("{}/.steam/root/compatibilitytools.d", home),
+            format!("{}/.steam/steam/compatibilitytools.d", home),
+            "/usr/share/steam/compatibilitytools.d".to_string(),
+        ] {
+            if let Ok(entries) = std::fs::read_dir(&base) {
+                for entry in entries.flatten() {
+                    let proton_bin = entry.path().join("proton");
+                    if proton_bin.exists() {
+                        candidates.push(proton_bin);
+                    }
+                }
+            }
+        }
+
+        // Scan standard Steam Proton installations (Experimental, 9.0, 8.0, GE-Proton, Flatpak)
+        for base in [
+            format!("{}/.local/share/Steam/steamapps/common", home),
+            format!("{}/.steam/root/steamapps/common", home),
+            format!("{}/.steam/steam/steamapps/common", home),
+            format!("{}/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common", home),
+        ] {
+            if let Ok(entries) = std::fs::read_dir(&base) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.to_ascii_lowercase().starts_with("proton") {
+                        let proton_bin = entry.path().join("proton");
+                        if proton_bin.exists() {
+                            candidates.push(proton_bin);
+                        }
+                    }
+                }
+            }
+        }
+
         candidates.into_iter().find(|p| p.exists())
     };
 
-    // Copy GDK and AppCore helper libraries into run_dir
-    let gdk_so = PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/xgameruntime.dll.so");
-    let twinapi_so = PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/twinapi.appcore.dll.so");
-    if gdk_so.exists() {
-        let _ = tokio::fs::copy(&gdk_so, run_dir.join("xgameruntime.dll")).await;
+    // Locate bundled GDK and AppCore helper libraries from AppImage or system
+    let runtime_dir = std::env::var("XODUS_RUNTIME_PATH")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib")))
+        })
+        .or_else(|| Some(PathBuf::from("/usr/lib/xodus")));
+
+    let gdk_so = runtime_dir
+        .as_ref()
+        .map(|d| d.join("xgameruntime.dll.so"))
+        .filter(|p| p.exists())
+        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/xgameruntime.dll.so")).filter(|p| p.exists()));
+
+    let twinapi_so = runtime_dir
+        .as_ref()
+        .map(|d| d.join("twinapi.appcore.dll.so"))
+        .filter(|p| p.exists())
+        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/twinapi.appcore.dll.so")).filter(|p| p.exists()));
+
+    if let Some(ref gdk) = gdk_so {
+        let _ = tokio::fs::copy(gdk, run_dir.join("xgameruntime.dll")).await;
     }
-    if twinapi_so.exists() {
-        let _ = tokio::fs::copy(&twinapi_so, run_dir.join("twinapi.appcore.dll")).await;
+    if let Some(ref twinapi) = twinapi_so {
+        let _ = tokio::fs::copy(twinapi, run_dir.join("twinapi.appcore.dll")).await;
     }
 
     let use_proton = wine == "wine" && proton_binary.is_some();
