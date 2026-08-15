@@ -37,6 +37,29 @@ Traditionally, Microsoft Store games are packaged in proprietary, encrypted **MS
 
 ---
 
+## 🚀 What This Solution Adds Over Upstream
+
+This fork builds significantly on top of the original [xodus](https://github.com/xodus-gaming/xodus) and [xgameruntime](https://github.com/xodus-gaming/xgameruntime) foundation by delivering a complete, production-ready ecosystem:
+
+1. **🖥️ Full Native Desktop GUI (`xodus-gui`)**:
+   - Complete hardware-accelerated desktop application for effortless library browsing, search, and one-click game launches.
+   - High-resolution poster art hydration, developer details, download size indicators, and license badges.
+   - Separate and accurate filtering for **Owned PC Games**, **Active Game Pass Catalog**, and **Local Installed Titles**.
+   - Built-in toggles for Proton version selection, MangoHud performance overlay, and custom launch parameters.
+
+2. **⚡ Extensive Wiring in Core `xodus`**:
+   - **Direct Store Entitlement Resolution (`b2bLicensePreview`)**: Authenticated token exchange directly querying Microsoft Store Collections to resolve genuine owned licenses without relying on legacy history.
+   - **Strict PC Platform & Anti-Console Filtering**: Parses Display Catalog package metadata to filter out console-exclusive Xbox packages and apps, presenting only true PC-playable games.
+   - **Local Installed Manifest Scanner**: Automatically scans and indexes games installed in `/mnt/w11/XboxGames` (or custom library paths) by parsing `MicrosoftGame.config` and `appxmanifest.xml`.
+   - **Automated Proton & Anti-Cheat Environment**: Configures Proton compatibility prefixes, maps isolated virtual drive letters (`X:`) to prevent Easy Anti-Cheat root drive rejection errors, and integrates Steam's Linux EAC runtime.
+   - **Integrated Cloud Saves**: Bidirectional push/pull Xbox Live cloud save synchronization with Connected Storage and Title Storage before launch and upon exit.
+
+3. **🧩 Deep Runtime Wiring in `xgameruntime`**:
+   - Seamless Unix domain socket IPC daemon (`xodus-service`) connecting running Wine/Proton games to the host Xodus authentication subsystem.
+   - Robust implementations for `XTaskQueue` asynchronous dispatch loops, `XUser` Live authentication tokens and modern Gamertag resolution, `XPersistentLocalStorage` (PLS) path mapping, and `XStore` licensing shims.
+
+---
+
 ## ✨ Key Features
 
 - **🎮 Comprehensive Library Management**:
