@@ -631,24 +631,75 @@ pub async fn enrich_products_catalog(
     for task in tasks {
         if let Ok(products) = task.await {
             for prod in products {
-                // 1. Check Product Family / Type (must be a Game)
-                let is_game = prod.product_type.as_deref().map(|t| t.eq_ignore_ascii_case("Game")).unwrap_or(false)
-                    || prod.product_kind.as_deref().map(|k| k.eq_ignore_ascii_case("Game")).unwrap_or(false)
-                    || prod.product_family_name.as_deref().map(|f| f.eq_ignore_ascii_case("Games")).unwrap_or(false);
+                // 1. Check Product Family / Type (must be a Game, never an Application / App / Consumable)
+                let ptype = prod.product_type.as_deref().unwrap_or("");
+                let pkind = prod.product_kind.as_deref().unwrap_or("");
+                let pfamily = prod.product_family_name.as_deref().unwrap_or("");
+
+                if ptype.eq_ignore_ascii_case("Application") || pkind.eq_ignore_ascii_case("Application") || pfamily.eq_ignore_ascii_case("Apps") {
+                    continue;
+                }
+                if ptype.eq_ignore_ascii_case("Consumable") || pkind.eq_ignore_ascii_case("Consumable") {
+                    continue;
+                }
+
+                let is_game = ptype.eq_ignore_ascii_case("Game")
+                    || pkind.eq_ignore_ascii_case("Game")
+                    || pfamily.eq_ignore_ascii_case("Games");
 
                 if !is_game {
                     continue;
                 }
 
                 // 2. Check PC Platform compatibility
-                if let Some(ref platforms) = prod.allowed_platforms {
-                    if !platforms.is_empty() && !platforms.iter().any(|p| {
+                let is_xpa = prod.properties.as_ref()
+                    .and_then(|p| p.get("XboxPlayAnywhere").and_then(|x| x.as_bool()))
+                    .unwrap_or(false);
+
+                let mut has_pc_package = false;
+                let mut has_only_xbox_packages = false;
+
+                if let Some(skus) = &prod.display_sku_availabilities {
+                    let mut total_packages = 0;
+                    let mut xbox_packages = 0;
+                    for sku_wrap in skus {
+                        if let Some(packages) = sku_wrap.get("Sku").and_then(|s| s.get("Properties")).and_then(|p| p.get("Packages")).and_then(|pk| pk.as_array()) {
+                            for pkg in packages {
+                                total_packages += 1;
+                                if let Some(plats) = pkg.get("PlatformDependencies").and_then(|pd| pd.as_array()) {
+                                    for pd in plats {
+                                        if let Some(pname) = pd.get("PlatformName").and_then(|pn| pn.as_str()) {
+                                            let l = pname.to_lowercase();
+                                            if l.contains("desktop") || l.contains("universal") || l.contains("pc") || l == "windows" {
+                                                has_pc_package = true;
+                                            } else if l == "windows.xbox" || l.contains("xbox") {
+                                                xbox_packages += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if total_packages > 0 && xbox_packages == total_packages && !has_pc_package {
+                        has_only_xbox_packages = true;
+                    }
+                }
+
+                if has_only_xbox_packages && !is_xpa {
+                    // Strictly Xbox console only title
+                    continue;
+                }
+
+                let has_pc_allowed_platform = prod.allowed_platforms.as_ref().map(|plats| {
+                    plats.is_empty() || plats.iter().any(|p| {
                         let l = p.to_lowercase();
                         l.contains("windows") || l.contains("desktop") || l.contains("pc") || l.contains("win32") || l.contains("all")
-                    }) {
-                        // Console-only title without PC packages -> skip
-                        continue;
-                    }
+                    })
+                }).unwrap_or(true);
+
+                if !has_pc_allowed_platform && !is_xpa && !has_pc_package {
+                    continue;
                 }
 
                 if let Some(prop) = prod.localized_properties.first() {
