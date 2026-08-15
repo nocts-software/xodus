@@ -3,6 +3,9 @@ name: noct's Xodus Release Pipeline
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -13,6 +16,8 @@ on:
         description: 'Release title'
         required: false
         default: 'noct'\''s xodus v1.0.0'
+  repository_dispatch:
+    types: [release-build, release, trigger-release]
 
 permissions:
   contents: write
