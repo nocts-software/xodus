@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 let mut is_installed = false;
                                                 let mut install_path = format!("/mnt/w11/XboxGames/{}", p.product_id);
                                                 for folder in &installed_folders {
-                                                    if folder == &p.product_id.to_lowercase() || folder == &p.title.to_lowercase() || folder.contains(&p.title.to_lowercase()) {
+                                                    if folder == &p.product_id.to_lowercase() || folder == &p.title.to_lowercase() || p.title.to_lowercase().contains(folder) {
                                                         is_installed = true;
                                                         install_path = format!("/mnt/w11/XboxGames/{}", folder); // simplistic mapping
                                                         break;
@@ -460,7 +460,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     for game in &mut final_games {
                                                         if game.title.eq_ignore_ascii_case(folder_name) 
                                                            || game.product_id.eq_ignore_ascii_case(folder_name)
-                                                           || folder_name.to_lowercase().contains(&game.title.to_lowercase()) {
+                                                           || game.title.to_lowercase().contains(&folder_name.to_lowercase()) {
                                                             game.installed = true;
                                                             game.path = p.to_string_lossy().to_string();
                                                             game.cloud_synced = true;
