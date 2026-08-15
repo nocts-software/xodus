@@ -335,6 +335,12 @@ pub async fn run(
 
     if let Some(mp) = manifest_path {
         if let Ok(content) = tokio::fs::read_to_string(&mp).await {
+            if parsed_title_id.is_none() {
+                if let Some(tid) = msixvc::manifest::AppxManifest::extract_title_id(&content) {
+                    println!("Detected Xbox Title ID from AppxManifest: {}", tid);
+                    parsed_title_id = Some(tid);
+                }
+            }
             if let Ok(manifest) = msixvc::manifest::AppxManifest::parse(&content) {
                 let pfn = manifest.package_family_name();
                 println!(
