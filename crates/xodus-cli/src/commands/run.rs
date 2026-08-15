@@ -374,10 +374,11 @@ pub async fn run(
     let home = std::env::var("HOME").unwrap_or_default();
     let local_xodus_lib = format!("{}/.local/lib/xodus", home);
     let repo_xodus_lib = "/run/media/noct/ssd1/Repo/other/xodus/xgameruntime".to_string();
+    let rdir = std::env::var("XODUS_RUNTIME_PATH").unwrap_or_default();
 
     let wine_dll_path = match std::env::var("WINEDLLPATH") {
-        Ok(paths) => format!("{}:{}:{}", local_xodus_lib, repo_xodus_lib, paths),
-        Err(_) => format!("{}:{}", local_xodus_lib, repo_xodus_lib),
+        Ok(paths) => format!("{}:{}:{}:{}", rdir, local_xodus_lib, repo_xodus_lib, paths),
+        Err(_) => format!("{}:{}:{}", rdir, local_xodus_lib, repo_xodus_lib),
     };
 
     if is_plaintext || container_path.is_none() {

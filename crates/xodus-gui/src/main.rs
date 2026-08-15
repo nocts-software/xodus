@@ -226,12 +226,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                             
                                             let default_path = std::path::PathBuf::from("/mnt/w11/XboxGames");
-                                            let mut installed_folders = std::collections::HashSet::new();
+                                            let mut installed_folders = std::collections::HashMap::new();
                                             if let Ok(mut entries) = tokio::fs::read_dir(&default_path).await {
                                                 while let Ok(Some(entry)) = entries.next_entry().await {
                                                     if entry.path().is_dir() {
                                                         if let Some(name) = entry.file_name().to_str() {
-                                                            installed_folders.insert(name.to_lowercase());
+                                                            installed_folders.insert(name.to_lowercase(), name.to_string());
                                                         }
                                                     }
                                                 }
@@ -240,10 +240,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             let cached_items: Vec<_> = cached_products.into_iter().map(|mut p| {
                                                 let mut is_installed = false;
                                                 let mut install_path = format!("/mnt/w11/XboxGames/{}", p.product_id);
-                                                for folder in &installed_folders {
-                                                    if folder == &p.product_id.to_lowercase() || folder == &p.title.to_lowercase() || p.title.to_lowercase().contains(folder) {
+                                                for (lower_folder, real_folder) in &installed_folders {
+                                                    if lower_folder == &p.product_id.to_lowercase() || lower_folder == &p.title.to_lowercase() || p.title.to_lowercase().contains(lower_folder) {
                                                         is_installed = true;
-                                                        install_path = format!("/mnt/w11/XboxGames/{}", folder); // simplistic mapping
+                                                        install_path = format!("/mnt/w11/XboxGames/{}", real_folder); // simplistic mapping
                                                         break;
                                                     }
                                                 }
