@@ -85,12 +85,60 @@ const state = {
 document.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
   setupWindowControls();
+  setupCustomDropdowns();
   renderUser();
   renderGames();
   renderSaves();
   renderFriends();
   setupIPCBridge();
 });
+
+function setupCustomDropdowns() {
+  setupSingleDropdown('presenceDropdown', 'presenceTrigger', (value) => {
+    updatePresence(value);
+    const dot = document.getElementById('presenceDot');
+    const text = document.getElementById('presenceCurrentText');
+    text.textContent = value === 'Active' ? 'Online' : (value === 'Away' ? 'Away' : 'Invisible');
+    dot.className = `status-indicator-dot dot-${value === 'Active' ? 'online' : (value === 'Away' ? 'away' : 'invisible')}`;
+  });
+
+  setupSingleDropdown('protonDropdown', 'protonTrigger', (value) => {
+    const text = document.getElementById('protonCurrentText');
+    if (value.includes('cachyos')) text.textContent = 'Proton CachyOS Native (RADV + FSR4)';
+    else if (value.includes('GE')) text.textContent = 'GE-Proton 11-3';
+    else text.textContent = 'System Wine';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.custom-dropdown')) {
+      document.querySelectorAll('.custom-dropdown').forEach(d => d.classList.remove('open'));
+    }
+  });
+}
+
+function setupSingleDropdown(dropdownId, triggerId, onSelect) {
+  const dropdown = document.getElementById(dropdownId);
+  const trigger = document.getElementById(triggerId);
+  if (!dropdown || !trigger) return;
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = dropdown.classList.contains('open');
+    document.querySelectorAll('.custom-dropdown').forEach(d => d.classList.remove('open'));
+    if (!isOpen) dropdown.classList.add('open');
+  });
+
+  const items = dropdown.querySelectorAll('.dropdown-item');
+  items.forEach(item => {
+    item.addEventListener('click', () => {
+      items.forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      const val = item.getAttribute('data-value');
+      onSelect(val);
+      dropdown.classList.remove('open');
+    });
+  });
+}
 
 function setupWindowControls() {
   const minBtn = document.getElementById('winMinimize');
@@ -112,7 +160,6 @@ function setupWindowControls() {
   }
 }
 
-
 // Navigation Handling
 function setupNavigation() {
   const navItems = document.querySelectorAll('.nav-item');
@@ -122,12 +169,8 @@ function setupNavigation() {
       switchTab(tab);
     });
   });
-
-  const presenceSelect = document.getElementById('presenceSelect');
-  presenceSelect.addEventListener('change', (e) => {
-    updatePresence(e.target.value);
-  });
 }
+
 
 function switchTab(tabId) {
   state.activeTab = tabId;

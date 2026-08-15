@@ -47,8 +47,9 @@ OUTPUT_APPIMAGE="$SCRIPT_DIR/Xodus-x86_64.AppImage"
 ARCH=x86_64 appimagetool "$APP_DIR" "$OUTPUT_APPIMAGE"
 
 mkdir -p "$HOME/Builds"
-cp "$OUTPUT_APPIMAGE" "$HOME/Builds/nocts-xodus-gui.AppImage"
+cp --remove-destination "$OUTPUT_APPIMAGE" "$HOME/Builds/nocts-xodus-gui.AppImage"
 chmod +x "$HOME/Builds/nocts-xodus-gui.AppImage"
+
 
 echo "=== Successfully Generated: $OUTPUT_APPIMAGE ==="
 echo "=== Deployed copy to: $HOME/Builds/nocts-xodus-gui.AppImage ==="

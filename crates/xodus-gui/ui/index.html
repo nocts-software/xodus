@@ -70,13 +70,32 @@
             <div class="gamertag-row">
               <span class="gamertag" id="userGamertag">Sign In</span>
             </div>
-            <select class="presence-select" id="presenceSelect">
-              <option value="Active">Online</option>
-              <option value="Away">Away</option>
-              <option value="Inactive">Invisible</option>
-            </select>
+            <div class="custom-dropdown" id="presenceDropdown">
+              <button class="dropdown-trigger" id="presenceTrigger" type="button">
+                <span class="status-indicator-dot dot-online" id="presenceDot"></span>
+                <span id="presenceCurrentText">Online</span>
+                <svg class="chevron-icon" viewBox="0 0 10 6" width="8" height="6">
+                  <path d="M1 1L5 5L9 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <div class="dropdown-menu" id="presenceMenu">
+                <div class="dropdown-item selected" data-value="Active">
+                  <span class="status-indicator-dot dot-online"></span>
+                  <span>Online</span>
+                </div>
+                <div class="dropdown-item" data-value="Away">
+                  <span class="status-indicator-dot dot-away"></span>
+                  <span>Away</span>
+                </div>
+                <div class="dropdown-item" data-value="Inactive">
+                  <span class="status-indicator-dot dot-invisible"></span>
+                  <span>Invisible</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
 
         <nav class="nav-menu">
           <button class="nav-item active" data-tab="library">
@@ -238,12 +257,27 @@
             <div class="settings-card">
               <h3>Compatibility Tool</h3>
               <p>Default Wine / Proton binary used for in-place game execution.</p>
-              <select class="form-select" id="protonSelect">
-                <option value="/usr/share/steam/compatibilitytools.d/proton-cachyos-native/proton" selected>Proton CachyOS Native (RADV + FSR4)</option>
-                <option value="/usr/share/steam/compatibilitytools.d/GE-Proton11-3/proton">GE-Proton 11-3</option>
-                <option value="wine">System Wine</option>
-              </select>
+              <div class="custom-dropdown settings-dropdown" id="protonDropdown">
+                <button class="dropdown-trigger" id="protonTrigger" type="button">
+                  <span id="protonCurrentText">Proton CachyOS Native (RADV + FSR4)</span>
+                  <svg class="chevron-icon" viewBox="0 0 10 6" width="8" height="6">
+                    <path d="M1 1L5 5L9 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <div class="dropdown-menu" id="protonMenu">
+                  <div class="dropdown-item selected" data-value="/usr/share/steam/compatibilitytools.d/proton-cachyos-native/proton">
+                    <span>Proton CachyOS Native (RADV + FSR4)</span>
+                  </div>
+                  <div class="dropdown-item" data-value="/usr/share/steam/compatibilitytools.d/GE-Proton11-3/proton">
+                    <span>GE-Proton 11-3</span>
+                  </div>
+                  <div class="dropdown-item" data-value="wine">
+                    <span>System Wine</span>
+                  </div>
+                </div>
+              </div>
             </div>
+
 
             <div class="settings-card">
               <h3>Cloud Save Synchronization</h3>
