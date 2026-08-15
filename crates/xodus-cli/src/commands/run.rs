@@ -692,7 +692,13 @@ pub async fn run(
     }
 
     // Deploy GDK runtime DLLs directly into run_dir, executable directories, and prefix system32
-    let runtime_dir = format!("{}/.local/share/xodus/runtime", home);
+    let repo_runtime_dir = "/run/media/noct/ssd1/Repo/other/xodus/xgameruntime";
+    let default_runtime_dir = format!("{}/.local/share/xodus/runtime", home);
+    let runtime_dir = if Path::new(repo_runtime_dir).join("xgameruntime.dll").exists() {
+        repo_runtime_dir.to_string()
+    } else {
+        default_runtime_dir
+    };
     let dll_names = ["xgameruntime.dll", "twinapi.appcore.dll", "api-ms-win-core-psm-appnotify-l1-1-0.dll", "xgameruntime.dll.so", "twinapi.appcore.dll.so"];
     for dll in &dll_names {
         let src_dll = Path::new(&runtime_dir).join(dll);

@@ -1016,18 +1016,51 @@ mod tests {
                     println!("Athena with rp://athena.prod.msrareservices.com/ -> Status: {status}\nBody: {body}");
                 }
 
-                let login_url = "https://stamp3-fd.prod.athena.msrareservices.com/ares/login/api/token/client";
-                let login_resp = client.post(login_url)
-                    .header("Authorization", &auth_header)
-                    .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
-                    .header("Content-Type", "application/json")
-                    .body("{}")
-                    .send()
-                    .await;
-                if let Ok(r) = login_resp {
-                    let status = r.status();
-                    let body = r.text().await.unwrap_or_default();
-                    println!("Athena Ares Client Login -> Status: {status}\nBody: {body}");
+                println!("\n=== TESTING TITLE AUTH PAYLOADS ===");
+                let title_auth_url = "https://title.auth.xboxlive.com/title/authenticate";
+                
+                for test_body in [
+                    serde_json::json!({
+                        "RelyingParty": "http://auth.xboxlive.com",
+                        "TokenType": "JWT",
+                        "Properties": {
+                            "AuthMethod": "RPS",
+                            "SiteName": "user.auth.xboxlive.com",
+                            "RpsTicket": format!("t={}", user_token.token),
+                            "DeviceToken": dt.token,
+                        }
+                    }),
+                    serde_json::json!({
+                        "RelyingParty": "http://auth.xboxlive.com",
+                        "TokenType": "JWT",
+                        "Properties": {
+                            "ProofKey": auth.request_signer().get_proof_key(),
+                            "DeviceToken": dt.token,
+                            "TitleId": 1717113201,
+                            "TitleVersion": "2.150.9409.0",
+                        }
+                    }),
+                    serde_json::json!({
+                        "RelyingParty": "http://auth.xboxlive.com",
+                        "TokenType": "JWT",
+                        "Properties": {
+                            "ProofKey": auth.request_signer().get_proof_key(),
+                            "DeviceToken": dt.token,
+                            "TitleId": 1717113201,
+                            "Version": "2.150.9409.0",
+                        }
+                    }),
+                ] {
+                    let resp = client.post(title_auth_url)
+                        .header("x-xbl-contract-version", "1")
+                        .json(&test_body)
+                        .send()
+                        .await;
+                    if let Ok(r) = resp {
+                        let status = r.status();
+                        let body = r.text().await.unwrap_or_default();
+                        println!("Title Auth -> Status: {status}\nBody: {body}");
+                    }
                 }
             }
             Err(e) => println!("  FAILED for rp://athena.prod.msrareservices.com/: {e}"),
