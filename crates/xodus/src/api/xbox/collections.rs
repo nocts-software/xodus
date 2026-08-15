@@ -1016,50 +1016,33 @@ mod tests {
                     println!("Athena with rp://athena.prod.msrareservices.com/ -> Status: {status}\nBody: {body}");
                 }
 
-                println!("\n=== TESTING TITLE AUTH PAYLOADS ===");
-                let title_auth_url = "https://title.auth.xboxlive.com/title/authenticate";
-                
-                for test_body in [
-                    serde_json::json!({
-                        "RelyingParty": "http://auth.xboxlive.com",
-                        "TokenType": "JWT",
-                        "Properties": {
-                            "AuthMethod": "RPS",
-                            "SiteName": "user.auth.xboxlive.com",
-                            "RpsTicket": format!("t={}", user_token.token),
-                            "DeviceToken": dt.token,
+                println!("\n=== DECODING ATHENA XSTS TOKEN CLAIMS ===");
+                let parts: Vec<&str> = auth_header.split(';').collect();
+                if let Some(token_part) = parts.last() {
+                    let jwt = token_part.trim();
+                    let jwt_parts: Vec<&str> = jwt.split('.').collect();
+                    if jwt_parts.len() >= 2 {
+                        use base64::Engine;
+                        if let Ok(payload_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(jwt_parts[1]) {
+                            use std::io::Read;
+                            let mut gz = flate2::read::GzDecoder::new(&payload_bytes[..]);
+                            let mut s = String::new();
+                            if gz.read_to_string(&mut s).is_ok() {
+                                println!("Decoded GZIP Claims:\n{}", s);
+                            } else {
+                                let mut def = flate2::read::DeflateDecoder::new(&payload_bytes[..]);
+                                if def.read_to_string(&mut s).is_ok() {
+                                    println!("Decoded Deflate Claims:\n{}", s);
+                                } else {
+                                    let mut zlib = flate2::read::ZlibDecoder::new(&payload_bytes[..]);
+                                    if zlib.read_to_string(&mut s).is_ok() {
+                                        println!("Decoded Zlib Claims:\n{}", s);
+                                    } else {
+                                        println!("Raw bytes len: {}", payload_bytes.len());
+                                    }
+                                }
+                            }
                         }
-                    }),
-                    serde_json::json!({
-                        "RelyingParty": "http://auth.xboxlive.com",
-                        "TokenType": "JWT",
-                        "Properties": {
-                            "ProofKey": auth.request_signer().get_proof_key(),
-                            "DeviceToken": dt.token,
-                            "TitleId": 1717113201,
-                            "TitleVersion": "2.150.9409.0",
-                        }
-                    }),
-                    serde_json::json!({
-                        "RelyingParty": "http://auth.xboxlive.com",
-                        "TokenType": "JWT",
-                        "Properties": {
-                            "ProofKey": auth.request_signer().get_proof_key(),
-                            "DeviceToken": dt.token,
-                            "TitleId": 1717113201,
-                            "Version": "2.150.9409.0",
-                        }
-                    }),
-                ] {
-                    let resp = client.post(title_auth_url)
-                        .header("x-xbl-contract-version", "1")
-                        .json(&test_body)
-                        .send()
-                        .await;
-                    if let Ok(r) = resp {
-                        let status = r.status();
-                        let body = r.text().await.unwrap_or_default();
-                        println!("Title Auth -> Status: {status}\nBody: {body}");
                     }
                 }
             }

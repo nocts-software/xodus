@@ -49,6 +49,7 @@ apple-native-keyring-store = { version = "1.0.0", features = ["keychain"]}
 rsa = "0.9.10"
 bergshamra = "0.8.0"
 ed25519-dalek = "3.0.0"
+flate2 = "1.0"
 
 [build-dependencies]
 prost-build = "0.14.4"
