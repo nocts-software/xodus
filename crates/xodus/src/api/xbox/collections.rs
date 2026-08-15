@@ -102,6 +102,10 @@ pub struct DisplayProduct {
     pub localized_properties: Vec<LocalizedProperty>,
     #[serde(rename = "AllowedPlatforms", default)]
     pub allowed_platforms: Option<Vec<String>>,
+    #[serde(rename = "Properties", default)]
+    pub properties: Option<serde_json::Value>,
+    #[serde(rename = "DisplaySkuAvailabilities", default)]
+    pub display_sku_availabilities: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -887,35 +891,10 @@ mod tests {
         println!("=== TOTAL UNIQUE OWNED PRODUCT IDS ACROSS ALL PAGES: {} ===", all_pids.len());
 
         let enriched = crate::api::xbox::enrich_products_catalog(&client, &all_pids).await;
-        let test_pids = [
-            "9NN82NH949D5", // Hitman WOA
-            "9P9VNSQK1W3K", // Brotato
-            "9PK087LNGJC5", // Balatro
-            "C4LLMHFQ1BXQ", // Wolfenstein II Xbox
-            "9PNSJCLXDZ0V", // GIMP
-            "9PB51GM7M33J", // foobar2000
-            "9P8G0QPQGLVV", // Diablo IV content pack
-            "9N647K4PK0KV", // Hitman 3
-        ];
-        let url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds={}&market=US&languages=en-us", test_pids.join(","));
-        let resp = client.get(&url).header("MS-CV", "0.1").send().await.unwrap();
-        let text = resp.text().await.unwrap();
-        let val: serde_json::Value = serde_json::from_str(&text).unwrap();
-        for p in val.get("Products").and_then(|p| p.as_array()).unwrap() {
-            let pid = p.get("ProductId").and_then(|x| x.as_str()).unwrap_or("");
-            let title = p.get("LocalizedProperties").and_then(|lp| lp.as_array()).and_then(|a| a.first()).and_then(|x| x.get("ProductTitle")).and_then(|t| t.as_str()).unwrap_or("");
-            let props = p.get("Properties");
-            let skus = p.get("DisplaySkuAvailabilities");
-            println!("\n=== Title: {} ({}) ===", title, pid);
-            println!("  Properties: {}", serde_json::to_string(props.unwrap_or(&serde_json::Value::Null)).unwrap());
-            if let Some(skus_arr) = skus.and_then(|s| s.as_array()) {
-                for (si, sku_wrap) in skus_arr.iter().enumerate() {
-                    let sku = sku_wrap.get("Sku");
-                    let sku_props = sku.and_then(|s| s.get("Properties"));
-                    let packages = sku_props.and_then(|sp| sp.get("Packages"));
-                    println!("  SKU [{si}] Packages: {}", serde_json::to_string(packages.unwrap_or(&serde_json::Value::Null)).unwrap());
-                }
-            }
+        println!("TOTAL RESOLVED USER OWNED PC GAMES: {}", enriched.len());
+
+        for (i, item) in enriched.iter().enumerate() {
+            println!("[{i}] {:<40} | ProductId: {:<12} | Dev: {:<20}", item.title, item.product_id, item.developer);
         }
     }
 }
