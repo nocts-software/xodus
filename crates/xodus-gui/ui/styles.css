@@ -649,14 +649,14 @@ body {
 /* Games Grid */
 .games-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+  gap: 10px;
 }
 
 .game-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -667,13 +667,13 @@ body {
 .game-card:hover {
   transform: translateY(-3px);
   border-color: var(--border-focus);
-  box-shadow: 0 10px 20px hsla(0, 0%, 0%, 0.4);
+  box-shadow: 0 8px 18px hsla(0, 0%, 0%, 0.5);
 }
 
 .game-card-cover {
   position: relative;
   width: 100%;
-  height: 180px;
+  height: 155px;
   background: var(--bg-elevated);
   overflow: hidden;
 }
@@ -691,42 +691,43 @@ body {
 
 .game-card-badge {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  padding: 2px 6px;
-  background: hsla(224, 25%, 8%, 0.88);
-  backdrop-filter: blur(8px);
+  top: 5px;
+  right: 5px;
+  padding: 1px 5px;
+  background: hsla(224, 25%, 8%, 0.9);
+  backdrop-filter: blur(6px);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  font-size: 0.62rem;
+  border-radius: 3px;
+  font-size: 0.58rem;
   font-weight: 700;
   color: var(--text-secondary);
+  text-transform: uppercase;
 }
 
 .game-card-badge.installed {
   color: #10b981;
-  border-color: hsla(142, 70%, 45%, 0.3);
+  border-color: hsla(142, 70%, 45%, 0.4);
 }
 
 .game-card-badge.owned {
   color: #38bdf8;
-  border-color: hsla(199, 89%, 48%, 0.3);
+  border-color: hsla(199, 89%, 48%, 0.4);
 }
 
 .game-card-badge.gamepass {
   color: #a855f7;
-  border-color: hsla(271, 91%, 65%, 0.3);
+  border-color: hsla(271, 91%, 65%, 0.4);
 }
 
 .game-card-info {
-  padding: 10px;
+  padding: 8px 7px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .game-card-title {
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -735,7 +736,7 @@ body {
 }
 
 .game-card-meta {
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
   display: flex;
   justify-content: space-between;
@@ -746,9 +747,16 @@ body {
 
 .game-card-actions {
   display: flex;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 4px;
 }
+
+.game-card-actions .btn {
+  padding: 4px 6px;
+  font-size: 0.72rem;
+  border-radius: 3px;
+}
+
 
 /* Panel Header */
 .panel-header {

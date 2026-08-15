@@ -21,7 +21,7 @@ const state = {
       installed: true,
       size: '423.2 MB',
       path: '/mnt/w11/XboxGames/Brotato',
-      cover: window.BROTATO_COVER || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      cover: window.BROTATO_COVER || 'https://shared.steamstatic.com/store_item_assets/steam/apps/2042420/library_600x900.jpg',
       splash: window.BROTATO_SPLASH || window.BROTATO_COVER,
       cloudSynced: true,
       lastPlayed: 'Today'
@@ -35,7 +35,7 @@ const state = {
       installed: false,
       size: '14.2 GB',
       path: '/mnt/w11/XboxGames/HiFiRush',
-      cover: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: '3 days ago'
     },
@@ -48,7 +48,7 @@ const state = {
       installed: false,
       size: '512 MB',
       path: '/mnt/w11/XboxGames/VampireSurvivors',
-      cover: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1794680/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: '1 week ago'
     },
@@ -61,7 +61,7 @@ const state = {
       installed: false,
       size: '110.4 GB',
       path: '/mnt/w11/XboxGames/ForzaHorizon5',
-      cover: 'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1551360/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '2 weeks ago'
     },
@@ -74,7 +74,7 @@ const state = {
       installed: false,
       size: '125.8 GB',
       path: '/mnt/w11/XboxGames/Starfield',
-      cover: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1716740/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '1 month ago'
     },
@@ -87,7 +87,7 @@ const state = {
       installed: false,
       size: '48.5 GB',
       path: '/mnt/w11/XboxGames/HaloInfinite',
-      cover: 'https://store-images.s-microsoft.com/image/apps.3823.14330850369313893.a687698c-b891-44f6-9576-fe28978ce915.5aada4fa-d850-4eb5-9100-33a81a5cde09',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1240440/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: 'Last month'
     },
@@ -100,7 +100,7 @@ const state = {
       installed: true,
       size: '82.1 GB',
       path: '/mnt/w11/XboxGames/Sea of Thieves',
-      cover: window.SOT_COVER || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80',
+      cover: window.SOT_COVER || 'https://shared.steamstatic.com/store_item_assets/steam/apps/1172620/library_600x900.jpg',
       splash: window.SOT_SPLASH || window.SOT_COVER,
       cloudSynced: true,
       lastPlayed: '3 weeks ago'
@@ -119,7 +119,6 @@ const state = {
       lastPlayed: 'Yesterday'
     },
     {
-
       id: '9NZ5W0R3W4F5',
       productId: '9NZ5W0R3W4F5',
       title: 'Lies of P',
@@ -128,7 +127,7 @@ const state = {
       installed: false,
       size: '35.6 GB',
       path: '/mnt/w11/XboxGames/LiesOfP',
-      cover: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1627720/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: '2 months ago'
     },
@@ -141,7 +140,7 @@ const state = {
       installed: false,
       size: '24.1 GB',
       path: '/mnt/w11/XboxGames/Persona3Reload',
-      cover: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/2161700/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '5 days ago'
     },
@@ -154,7 +153,7 @@ const state = {
       installed: false,
       size: '18.3 GB',
       path: '/mnt/w11/XboxGames/Palworld',
-      cover: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1623730/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: '3 weeks ago'
     },
@@ -167,7 +166,7 @@ const state = {
       installed: false,
       size: '78.4 GB',
       path: '/mnt/w11/XboxGames/DoomEternal',
-      cover: 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/782330/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '4 months ago'
     },
@@ -180,7 +179,7 @@ const state = {
       installed: false,
       size: '50.2 GB',
       path: '/mnt/w11/XboxGames/MSFS2024',
-      cover: 'https://images.unsplash.com/photo-1508614589041-895b88991e3e?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1250410/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: 'New'
     },
@@ -193,7 +192,7 @@ const state = {
       installed: false,
       size: '88.0 GB',
       path: '/mnt/w11/XboxGames/IndianaJones',
-      cover: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/2677660/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: 'New'
     },
@@ -206,7 +205,7 @@ const state = {
       installed: false,
       size: '142.5 GB',
       path: '/mnt/w11/XboxGames/Stalker2',
-      cover: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1643320/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: 'New'
     },
@@ -219,7 +218,7 @@ const state = {
       installed: false,
       size: '64.2 GB',
       path: '/mnt/w11/XboxGames/Gears5',
-      cover: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1097840/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '6 months ago'
     },
@@ -232,7 +231,7 @@ const state = {
       installed: false,
       size: '32.0 GB',
       path: '/mnt/w11/XboxGames/Deathloop',
-      cover: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1252330/library_600x900.jpg',
       cloudSynced: false,
       lastPlayed: '2 months ago'
     },
@@ -245,7 +244,7 @@ const state = {
       installed: false,
       size: '28.5 GB',
       path: '/mnt/w11/XboxGames/Psychonauts2',
-      cover: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/607080/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '5 months ago'
     },
@@ -258,22 +257,22 @@ const state = {
       installed: false,
       size: '42.8 GB',
       path: '/mnt/w11/XboxGames/AoE4',
-      cover: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/1466860/library_600x900.jpg',
       cloudSynced: true,
       lastPlayed: '1 month ago'
     },
     {
-      id: '9MV8F4J6L92D',
-      productId: '9MV8F4J6L92D',
-      title: 'The Outer Worlds: Spacer\'s Choice Edition',
-      developer: 'Obsidian Entertainment / Private Division',
+      id: '9P4K39185NWL',
+      productId: '9P4K39185NWL',
+      title: 'Dead Cells',
+      developer: 'Motion Twin',
       licenseType: 'owned',
       installed: false,
-      size: '38.4 GB',
-      path: '/mnt/w11/XboxGames/OuterWorlds',
-      cover: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80',
+      size: '2.1 GB',
+      path: '/mnt/w11/XboxGames/DeadCells',
+      cover: 'https://shared.steamstatic.com/store_item_assets/steam/apps/588650/library_600x900.jpg',
       cloudSynced: true,
-      lastPlayed: '3 months ago'
+      lastPlayed: '3 weeks ago'
     }
   ],
   friends: [
