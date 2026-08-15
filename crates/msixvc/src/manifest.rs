@@ -60,6 +60,18 @@ impl AppxManifest {
         // Fallback default format when publisher hash is not computed
         format!("{}_8wekyb3d8bbwe", self.identity.name)
     }
+
+    /// Extracts the Xbox Title ID from ms-xbl-<TitleId> protocol in manifest XML if present.
+    pub fn extract_title_id(xml_content: &str) -> Option<String> {
+        if let Some(idx) = xml_content.find("ms-xbl-") {
+            let rest = &xml_content[idx + 7..];
+            let tid: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+            if !tid.is_empty() && tid.to_lowercase() != "multiplayer" {
+                return Some(tid);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
