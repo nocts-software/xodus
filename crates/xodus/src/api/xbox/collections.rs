@@ -81,124 +81,247 @@ pub struct InventoryItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub struct DisplayCatalogResponse {
-    #[serde(rename = "Products", default)]
+    #[serde(default)]
     pub products: Vec<DisplayProduct>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub struct DisplayProduct {
-    #[serde(rename = "ProductId", default)]
+    #[serde(default)]
     pub product_id: String,
-    #[serde(rename = "ProductType", default)]
+    #[serde(default)]
     pub product_type: Option<String>,
-    #[serde(rename = "ProductKind", default)]
+    #[serde(default)]
     pub product_kind: Option<String>,
-    #[serde(rename = "ProductFamilyName", default)]
+    #[serde(default)]
     pub product_family_name: Option<String>,
-    #[serde(rename = "LocalizedProperties", default)]
+    #[serde(default)]
     pub localized_properties: Vec<LocalizedProperty>,
-    #[serde(rename = "AllowedPlatforms", default)]
+    #[serde(default)]
     pub allowed_platforms: Option<Vec<String>>,
-    #[serde(rename = "Properties", default)]
+    #[serde(default)]
     pub properties: Option<serde_json::Value>,
-    #[serde(rename = "DisplaySkuAvailabilities", default)]
+    #[serde(default)]
     pub display_sku_availabilities: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub struct LocalizedProperty {
-    #[serde(rename = "ProductTitle", default)]
+    #[serde(default)]
     pub product_title: String,
-    #[serde(rename = "DeveloperName", default)]
+    #[serde(default)]
     pub developer_name: String,
-    #[serde(rename = "PublisherName", default)]
+    #[serde(default)]
     pub publisher_name: String,
-    #[serde(rename = "Images", default)]
+    #[serde(default)]
     pub images: Vec<ProductImage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub struct ProductImage {
-    #[serde(rename = "ImagePurpose", default)]
+    #[serde(default)]
     pub image_purpose: String,
-    #[serde(rename = "Uri", default)]
+    #[serde(default)]
     pub uri: String,
 }
 
-/// Query Microsoft TitleHub and Microsoft Collections APIs with full metadata and resolve all user-owned games
+/// Query Microsoft Collections b2bLicensePreview API with full metadata and resolve genuine user-owned PC games
 pub async fn get_user_owned_catalog_items(
     client: &reqwest::Client,
+    tokens: Option<&crate::tokens::TokenManager>,
     auth_header: &str,
-    licensing_auth_header: Option<&str>,
+    _licensing_auth_header: Option<&str>,
     xuid: Option<&str>,
     db: Option<&crate::db::Database>,
 ) -> Vec<GameCatalogItem> {
-    let mut catalog_items = Vec::new();
-    let mut seen_ids = HashSet::new();
-    let mut store_big_ids = Vec::new();
-    let mut direct_titles = Vec::new();
-
-    // 1. Query TitleHub endpoints (Xbox Live title history & entitlements with full metadata)
-    let mut titlehub_urls = Vec::new();
-    if let Some(id) = xuid {
-        titlehub_urls.push(format!("https://titlehub.xboxlive.com/users/xuid({id})/titles/titlehistory/decoration/scid,image,detail"));
+    if let Some(ref database) = db {
+        let _ = database.clean_invalid_entitlements();
     }
-    titlehub_urls.push("https://titlehub.xboxlive.com/users/me/titles/titlehistory/decoration/scid,image,detail".to_string());
 
-    for th_url in &titlehub_urls {
-        if let Ok(th_resp) = client
-            .get(th_url)
-            .header("Authorization", auth_header)
-            .header("x-xbl-contract-version", "2")
-            .header("Accept-Language", "en-US")
-            .header("Accept", "application/json")
-            .send()
-            .await
-        {
-            let th_status = th_resp.status();
-            let th_text = th_resp.text().await.unwrap_or_default();
-            if th_status.is_success() {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&th_text) {
-                    if let Some(titles) = v.get("titles").and_then(|t| t.as_array()) {
-                        for t in titles {
-                            let raw_name = t.get("name").and_then(|x| x.as_str()).unwrap_or("");
-                            let t_type = t.get("type").and_then(|n| n.as_str()).unwrap_or("");
-                            if raw_name.is_empty() || t_type != "Game" {
-                                continue;
+    let mut store_big_ids = Vec::new();
+    let mut seen_ids = HashSet::new();
+
+    // 1. Primary & Authentic Source: Microsoft Store Collections b2bLicensePreview API
+    let mut b2b_succeeded = false;
+    if let Some(mgr) = tokens {
+        if let (Ok(dev_token), Ok(user_token), Ok(user)) = (mgr.get_device_sts_token(), mgr.get_user_sts_token(), mgr.get_user()) {
+            if let (crate::models::secrets::Token::Legacy(dev_token), crate::models::secrets::Token::Legacy(user_token)) = (dev_token, user_token) {
+                let coll_outcome = crate::api::live::exchange_user_token(
+                    client,
+                    user_token,
+                    user.username,
+                    dev_token,
+                    None,
+                    Some("Silent".to_string()),
+                    "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+                    &[(
+                        "scope=service::collections.mp.microsoft.com::MBI_SSL".to_string(),
+                        Some(crate::models::soap::PolicyReference::token_broker()),
+                    )],
+                )
+                .await;
+
+                if let Ok(crate::models::live::ExchangeUserTokenOutcome::Issued(body_content)) = coll_outcome {
+                    let coll_token: Option<String> = match body_content {
+                        crate::models::soap::BodyContent::RequestSecurityTokenResponseCollection(mut c) => {
+                            let tok: crate::models::secrets::Token = c.security_tokens.remove(0).into();
+                            match tok {
+                                crate::models::secrets::Token::Compact(s) => Some(s),
+                                _ => None,
+                            }
+                        }
+                        crate::models::soap::BodyContent::RequestSecurityTokenResponse(t) => {
+                            let tok: crate::models::secrets::Token = (*t).into();
+                            match tok {
+                                crate::models::secrets::Token::Compact(s) => Some(s),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(compact_token) = coll_token {
+                        let ep = "https://collections.mp.microsoft.com/v8.0/collections/b2bLicensePreview";
+                        let mut continuation_token: Option<String> = None;
+
+                        loop {
+                            let mut body = serde_json::json!({
+                                "market": "US",
+                                "locale": "en-US",
+                                "maxResults": 200,
+                                "beneficiaries": [
+                                    {
+                                        "identityType": "msa",
+                                        "identityValue": compact_token,
+                                        "localTicketReference": user.puid
+                                    }
+                                ]
+                            });
+
+                            if let Some(token) = &continuation_token {
+                                if let Some(obj) = body.as_object_mut() {
+                                    obj.insert("continuationToken".to_string(), serde_json::json!(token));
+                                }
                             }
 
-                            let devices: Vec<String> = t.get("devices").and_then(|d| d.as_array())
-                                .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
-                                .unwrap_or_default();
+                            if let Ok(resp) = client
+                                .post(ep)
+                                .header("Authorization", format!("{compact_token}"))
+                                .header("Content-Type", "application/json")
+                                .json(&body)
+                                .send()
+                                .await
+                            {
+                                if resp.status().is_success() {
+                                    let tx = resp.text().await.unwrap_or_default();
+                                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&tx) {
+                                        if let Some(items) = val.get("items").and_then(|i| i.as_array()) {
+                                            for it in items {
+                                                let pid = it.get("productId").and_then(|p| p.as_str()).unwrap_or("");
+                                                let is_trial = it.get("isTrial").and_then(|t| t.as_bool()).unwrap_or(false);
+                                                if !is_trial && pid.len() == 12 && pid.chars().all(|c| c.is_ascii_alphanumeric()) {
+                                                    if seen_ids.insert(pid.to_string()) {
+                                                        store_big_ids.push(pid.to_string());
+                                                    }
+                                                }
+                                            }
+                                        }
 
-                            let is_pure_win32 = devices.len() == 1 && devices[0] == "Win32";
-                            let is_pure_360 = devices.len() == 1 && devices[0] == "Xbox360";
-                            if is_pure_win32 || is_pure_360 {
-                                continue;
+                                        let next_token = val.get("continuationToken").and_then(|t| t.as_str()).map(|s| s.to_string());
+                                        if next_token.is_some() && next_token != continuation_token {
+                                            continuation_token = next_token;
+                                        } else {
+                                            break;
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
                             }
+                        }
 
-                            let modern_id = t.get("modernTitleId").and_then(|n| n.as_str()).unwrap_or("");
-                            let pfn = t.get("pfn").and_then(|n| n.as_str()).unwrap_or("");
+                        if !store_big_ids.is_empty() {
+                            b2b_succeeded = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-                            let mut pc_product_id = String::new();
-                            let mut any_product_id = String::new();
+    // 2. Fallback: Query TitleHub with STRICT PC-only platform constraints
+    if !b2b_succeeded && store_big_ids.is_empty() {
+        let mut titlehub_urls = Vec::new();
+        if let Some(id) = xuid {
+            titlehub_urls.push(format!("https://titlehub.xboxlive.com/users/xuid({id})/titles/titlehistory/decoration/scid,image,detail"));
+        }
+        titlehub_urls.push("https://titlehub.xboxlive.com/users/me/titles/titlehistory/decoration/scid,image,detail".to_string());
 
-                            if let Some(detail) = t.get("detail") {
-                                if let Some(availabilities) = detail.get("availabilities").and_then(|a| a.as_array()) {
-                                    for av in availabilities {
-                                        let pid = av.get("ProductId").and_then(|p| p.as_str()).unwrap_or("");
-                                        if pid.len() == 12 && pid.chars().all(|c| c.is_ascii_alphanumeric()) {
-                                            any_product_id = pid.to_string();
-                                            if let Some(platforms) = av.get("Platforms").and_then(|p| p.as_array()) {
-                                                for p in platforms {
-                                                    if let Some(p_str) = p.as_str() {
-                                                        if p_str == "PC" || p_str == "Desktop" {
-                                                            pc_product_id = pid.to_string();
+        for th_url in &titlehub_urls {
+            if let Ok(th_resp) = client
+                .get(th_url)
+                .header("Authorization", auth_header)
+                .header("x-xbl-contract-version", "2")
+                .header("Accept-Language", "en-US")
+                .header("Accept", "application/json")
+                .send()
+                .await
+            {
+                let th_status = th_resp.status();
+                let th_text = th_resp.text().await.unwrap_or_default();
+                if th_status.is_success() {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&th_text) {
+                        if let Some(titles) = v.get("titles").and_then(|t| t.as_array()) {
+                            for t in titles {
+                                let raw_name = t.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                                let t_type = t.get("type").and_then(|n| n.as_str()).unwrap_or("");
+                                if raw_name.is_empty() || t_type != "Game" {
+                                    continue;
+                                }
+
+                                let devices: Vec<String> = t.get("devices").and_then(|d| d.as_array())
+                                    .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+                                    .unwrap_or_default();
+
+                                let is_pure_win32 = devices.len() == 1 && devices[0] == "Win32";
+                                let is_pure_360 = devices.len() == 1 && devices[0] == "Xbox360";
+                                if is_pure_win32 || is_pure_360 {
+                                    continue;
+                                }
+
+                                let mut has_pc_platform = devices.iter().any(|d| d == "PC");
+                                let mut pc_product_id = String::new();
+
+                                if let Some(detail) = t.get("detail") {
+                                    if let Some(attrs) = detail.get("attributes").and_then(|a| a.as_array()) {
+                                        for attr in attrs {
+                                            if let Some(aname) = attr.get("name").and_then(|n| n.as_str()) {
+                                                if aname == "XPA" {
+                                                    has_pc_platform = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if let Some(availabilities) = detail.get("availabilities").and_then(|a| a.as_array()) {
+                                        for av in availabilities {
+                                            let pid = av.get("ProductId").and_then(|p| p.as_str()).unwrap_or("");
+                                            if pid.len() == 12 && pid.chars().all(|c| c.is_ascii_alphanumeric()) {
+                                                if let Some(platforms) = av.get("Platforms").and_then(|p| p.as_array()) {
+                                                    for p in platforms {
+                                                        if let Some(p_str) = p.as_str() {
+                                                            if p_str == "PC" || p_str == "Desktop" {
+                                                                has_pc_platform = true;
+                                                                pc_product_id = pid.to_string();
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -206,155 +329,46 @@ pub async fn get_user_owned_catalog_items(
                                         }
                                     }
                                 }
-                            }
 
-                            let final_pid = if !pc_product_id.is_empty() {
-                                pc_product_id
-                            } else if !any_product_id.is_empty() {
-                                any_product_id
-                            } else {
-                                String::new()
-                            };
-
-                            if !final_pid.is_empty() {
-                                if seen_ids.insert(final_pid.clone()) {
-                                    store_big_ids.push(final_pid);
-                                }
-                            } else if !pfn.is_empty() || !modern_id.is_empty() {
-                                let target_id = if !pfn.is_empty() { pfn.to_string() } else { modern_id.to_string() };
-                                if seen_ids.insert(target_id.clone()) {
-                                    let developer = t.get("detail")
-                                        .and_then(|d| d.get("developerName").and_then(|dev| dev.as_str()))
-                                        .or_else(|| t.get("detail").and_then(|d| d.get("publisherName").and_then(|p| p.as_str())))
-                                        .unwrap_or("Xbox Game Studios")
-                                        .to_string();
-
-                                    let cover = t.get("displayImage").and_then(|x| x.as_str())
-                                        .or_else(|| {
-                                            t.get("images")
-                                                .and_then(|arr| arr.as_array())
-                                                .and_then(|a| a.first())
-                                                .and_then(|img| img.get("url").and_then(|u| u.as_str()))
-                                        })
-                                        .map(|s| {
-                                            if s.starts_with("//") { format!("https:{}", s) } else { s.to_string() }
-                                        })
-                                        .unwrap_or_else(|| DEFAULT_COVER_URL.to_string());
-
-                                    direct_titles.push(GameCatalogItem {
-                                        id: target_id.clone(),
-                                        product_id: target_id.clone(),
-                                        title: raw_name.to_string(),
-                                        developer,
-                                        license_type: "owned".to_string(),
-                                        installed: false,
-                                        size: "Standard".to_string(),
-                                        path: format!("/mnt/w11/XboxGames/{}", target_id),
-                                        cover,
-                                        cloud_synced: true,
-                                        last_played: "Licensed".to_string(),
-                                    });
+                                // STRICT RULE: Must be playable on PC. Console-only games are never added.
+                                if has_pc_platform && !pc_product_id.is_empty() {
+                                    if seen_ids.insert(pc_product_id.clone()) {
+                                        store_big_ids.push(pc_product_id);
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                break;
-            }
-        }
-    }
-
-    // 2. Query Microsoft Collections API for Store BigIDs if accessible
-    let collection_urls = [
-        "https://collections.mp.microsoft.com/v8.0/collections/users/me/browse",
-        "https://collections.mp.microsoft.com/v8.0/collections/browse",
-    ];
-
-    let store_auth = licensing_auth_header.unwrap_or(auth_header);
-    for url in &collection_urls {
-        let mut continuation_token: Option<String> = None;
-        loop {
-            let mut body_map = serde_json::json!({
-                "market": "US",
-                "locale": "en-US",
-                "maxResults": 200,
-                "validityType": "Valid",
-                "entitlementFilters": [
-                    "Game",
-                    "Durable"
-                ]
-            });
-
-            if let Some(token) = &continuation_token {
-                if let Some(obj) = body_map.as_object_mut() {
-                    obj.insert("continuationToken".to_string(), serde_json::json!(token));
-                }
-            }
-
-            if let Ok(resp) = client
-                .post(*url)
-                .header("Authorization", store_auth)
-                .header("Content-Type", "application/json")
-                .json(&body_map)
-                .send()
-                .await
-            {
-                if resp.status().is_success() {
-                    let text = resp.text().await.unwrap_or_default();
-                    let res: CollectionsBrowseResponse = serde_json::from_str(&text).unwrap_or_default();
-                    for item in res.items {
-                        if item.product_id.len() == 12 && item.product_id.chars().all(|c| c.is_ascii_alphanumeric()) {
-                            if seen_ids.insert(item.product_id.clone()) {
-                                store_big_ids.push(item.product_id);
-                            }
-                        }
-                    }
-
-                    let next = res.continuation_token.or(res.paging_token);
-                    if next.is_some() && next != continuation_token {
-                        continuation_token = next;
-                    } else {
-                        break;
-                    }
-                } else {
                     break;
                 }
-            } else {
-                break;
             }
         }
     }
 
-    // 3. Batch-enrich all valid Store BigIDs via DisplayCatalog
-    if !store_big_ids.is_empty() {
-        let enriched = enrich_products_catalog(client, &store_big_ids).await;
-        for mut item in enriched {
-            item.license_type = "owned".to_string();
-            catalog_items.push(item);
+    // 3. Batch Enrich through Display Catalog and cache verified PC games in SQLite
+    let enriched = enrich_products_catalog(client, &store_big_ids).await;
+
+    if let Some(ref database) = db {
+        if let Some(id) = xuid {
+            let mut db_entitlements = Vec::new();
+            for item in &enriched {
+                db_entitlements.push(crate::db::CachedEntitlement {
+                    xuid: id.to_string(),
+                    product_id: item.product_id.clone(),
+                    sku_id: None,
+                    title: Some(item.title.clone()),
+                    entitlement_type: "owned".to_string(),
+                    acquired_date: None,
+                    updated_at: 0,
+                });
+            }
+            if !db_entitlements.is_empty() {
+                let _ = database.replace_user_entitlements(id, &db_entitlements);
+            }
         }
     }
 
-    // Append direct titles that had no 12-char ProductId
-    catalog_items.extend(direct_titles);
-
-    // 4. Clean and update SQLite user_entitlements
-    if let Some(database) = db {
-        let _ = database.clean_invalid_entitlements();
-        let to_cache: Vec<_> = catalog_items.iter().map(|item| {
-            crate::db::CachedEntitlement {
-                xuid: "me".to_string(),
-                product_id: item.product_id.clone(),
-                sku_id: None,
-                title: Some(item.title.clone()),
-                entitlement_type: "owned".to_string(),
-                acquired_date: None,
-                updated_at: 0,
-            }
-        }).collect();
-        let _ = database.replace_user_entitlements("me", &to_cache);
-    }
-
-    catalog_items
+    enriched
 }
 
 /// Query Microsoft Collections API with full pagination across all pages
@@ -652,28 +666,30 @@ pub async fn enrich_products_catalog(
                 }
 
                 // 2. Check PC Platform compatibility
-                let is_xpa = prod.properties.as_ref()
-                    .and_then(|p| p.get("XboxPlayAnywhere").and_then(|x| x.as_bool()))
-                    .unwrap_or(false);
+                let is_xpa = prod.properties.as_ref().map(|props| {
+                    props.get("XboxPlayAnywhere").and_then(|x| x.as_bool()).unwrap_or(false)
+                    || props.get("Attributes").and_then(|a| a.as_array()).map(|attrs| {
+                        attrs.iter().any(|attr| {
+                            attr.get("Name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case("XPA")).unwrap_or(false)
+                        })
+                    }).unwrap_or(false)
+                }).unwrap_or(false);
 
                 let mut has_pc_package = false;
-                let mut has_only_xbox_packages = false;
+                let mut has_xbox_package = false;
 
                 if let Some(skus) = &prod.display_sku_availabilities {
-                    let mut total_packages = 0;
-                    let mut xbox_packages = 0;
                     for sku_wrap in skus {
                         if let Some(packages) = sku_wrap.get("Sku").and_then(|s| s.get("Properties")).and_then(|p| p.get("Packages")).and_then(|pk| pk.as_array()) {
                             for pkg in packages {
-                                total_packages += 1;
                                 if let Some(plats) = pkg.get("PlatformDependencies").and_then(|pd| pd.as_array()) {
                                     for pd in plats {
                                         if let Some(pname) = pd.get("PlatformName").and_then(|pn| pn.as_str()) {
                                             let l = pname.to_lowercase();
-                                            if l.contains("desktop") || l.contains("universal") || l.contains("pc") || l == "windows" {
+                                            if (l.contains("desktop") || l.contains("universal") || l == "pc" || l == "windows") && !l.contains("xbox") {
                                                 has_pc_package = true;
-                                            } else if l == "windows.xbox" || l.contains("xbox") {
-                                                xbox_packages += 1;
+                                            } else if l.contains("xbox") {
+                                                has_xbox_package = true;
                                             }
                                         }
                                     }
@@ -681,24 +697,22 @@ pub async fn enrich_products_catalog(
                             }
                         }
                     }
-                    if total_packages > 0 && xbox_packages == total_packages && !has_pc_package {
-                        has_only_xbox_packages = true;
-                    }
                 }
 
-                if has_only_xbox_packages && !is_xpa {
+                let has_pc_allowed_platforms = prod.allowed_platforms.as_ref().map(|plats| {
+                    plats.iter().any(|p| {
+                        let l = p.to_lowercase();
+                        (l.contains("desktop") || l.contains("pc") || l.contains("win32") || l.contains("universal")) && !l.contains("xbox")
+                    })
+                }).unwrap_or(false);
+
+                if has_xbox_package && !has_pc_package && !is_xpa {
                     // Strictly Xbox console only title
                     continue;
                 }
 
-                let has_pc_allowed_platform = prod.allowed_platforms.as_ref().map(|plats| {
-                    plats.is_empty() || plats.iter().any(|p| {
-                        let l = p.to_lowercase();
-                        l.contains("windows") || l.contains("desktop") || l.contains("pc") || l.contains("win32") || l.contains("all")
-                    })
-                }).unwrap_or(true);
-
-                if !has_pc_allowed_platform && !is_xpa && !has_pc_package {
+                if !has_pc_package && !is_xpa && !has_pc_allowed_platforms {
+                    // No PC package, not XPA, and no PC platform listed -> console only
                     continue;
                 }
 
@@ -856,96 +870,137 @@ mod tests {
         let client = reqwest::Client::new();
         let tokens = crate::tokens::TokenManager::with_keychain_and_memory();
         
-        let Token::Legacy(dev_token) = tokens.get_device_sts_token().unwrap() else { panic!() };
-        let Token::Legacy(user_token) = tokens.get_user_sts_token().unwrap() else { panic!() };
-        let user = tokens.get_user().unwrap();
-
-        let coll_outcome = crate::api::live::exchange_user_token(
-            &client,
-            user_token.clone(),
-            user.username.clone(),
-            dev_token.clone(),
-            None,
-            Some("Silent".to_string()),
-            "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
-            &[(
-                "scope=service::collections.mp.microsoft.com::MBI_SSL".to_string(),
-                Some(crate::models::soap::PolicyReference::token_broker()),
-            )],
-        )
-        .await
-        .unwrap();
-
-        let Token::Compact(coll_token) = (match coll_outcome {
-            crate::models::live::ExchangeUserTokenOutcome::Issued(
-                crate::models::soap::BodyContent::RequestSecurityTokenResponseCollection(mut c),
-            ) => Token::from(c.security_tokens.remove(0)),
-            crate::models::live::ExchangeUserTokenOutcome::Issued(
-                crate::models::soap::BodyContent::RequestSecurityTokenResponse(t),
-            ) => Token::from(*t),
-            _ => panic!(),
-        }) else { panic!() };
-
         let xbl_xsts = crate::api::xbox::get_or_request_xsts(&client, &tokens, "http://xboxlive.com").await.unwrap();
         let xuid = xbl_xsts.xuid().map(|x| x.to_string()).unwrap_or_default();
 
-        println!("User PUID: {}, XUID: {}", user.puid, xuid);
-
-        let ep = "https://collections.mp.microsoft.com/v8.0/collections/b2bLicensePreview";
-
-        let mut all_pids = Vec::new();
-        let mut seen = HashSet::new();
-        let mut continuation_token: Option<String> = None;
-
-        loop {
-            let mut body = serde_json::json!({
-                "market": "US",
-                "locale": "en-US",
-                "maxResults": 200,
-                "beneficiaries": [
-                    {
-                        "identityType": "msa",
-                        "identityValue": coll_token,
-                        "localTicketReference": user.puid
-                    }
-                ]
-            });
-
-            if let Some(token) = &continuation_token {
-                body.as_object_mut().unwrap().insert("continuationToken".to_string(), serde_json::json!(token));
-            }
-
-            let resp = client.post(ep).header("Authorization", format!("{coll_token}")).header("Content-Type", "application/json").json(&body).send().await.unwrap();
-            let tx = resp.text().await.unwrap_or_default();
-            let val: serde_json::Value = serde_json::from_str(&tx).unwrap();
-
-            if let Some(items) = val.get("items").and_then(|i| i.as_array()) {
-                for it in items {
-                    let pid = it.get("productId").and_then(|p| p.as_str()).unwrap_or("");
-                    let is_trial = it.get("isTrial").and_then(|t| t.as_bool()).unwrap_or(false);
-                    if !is_trial && pid.len() == 12 && pid.chars().all(|c| c.is_ascii_alphanumeric()) {
-                        if seen.insert(pid.to_string()) {
-                            all_pids.push(pid.to_string());
-                        }
-                    }
-                }
-            }
-
-            let next_token = val.get("continuationToken").and_then(|t| t.as_str()).map(|s| s.to_string());
-            if next_token.is_some() && next_token != continuation_token {
-                continuation_token = next_token;
-            } else {
-                break;
-            }
+        let db = crate::db::Database::open_default().ok();
+        if let Some(ref d) = db {
+            d.clear_catalog_cache().unwrap();
+            d.clean_invalid_entitlements().unwrap();
         }
 
-        println!("=== TOTAL UNIQUE OWNED PRODUCT IDS ACROSS ALL PAGES: {} ===", all_pids.len());
+        println!("\n=== TESTING XAL GET_DEVICE_TOKEN_RPS ===");
+        let mut auth = xal::XalAuthenticator::new(
+            xal::XalAppParameters {
+                client_id: "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+                title_id: Some("2008767227".to_string()),
+                auth_scopes: vec![],
+                redirect_uri: None,
+                client_secret: None,
+            },
+            xal::client_params::CLIENT_WINDOWS(),
+            "RETAIL".to_string(),
+        );
 
-        let enriched = crate::api::xbox::enrich_products_catalog(&client, &all_pids).await;
-        println!("TOTAL RESOLVED USER OWNED PC GAMES: {}", enriched.len());
+        let Token::Legacy(device_token_raw) = tokens.get_device_sts_token().unwrap() else { panic!() };
+        let device_token_resp = crate::api::live::exchange_device_token(
+            &client,
+            device_token_raw.clone(),
+            "{28C08266-F973-4AE6-FFE4-409B249F138F}".to_string(),
+            "scope=service::user.auth.xboxlive.com::MBI_SSL&api-version=2.0".to_owned(),
+            Some(crate::models::soap::PolicyReference::token_broker()),
+        ).await.unwrap();
+        let Token::Compact(compact_dev) = device_token_resp.into() else { panic!() };
+        
+        let dev_tok_res = auth.get_device_token_rps(compact_dev).await;
+        println!("get_device_token_rps result: {:?}", dev_tok_res.as_ref().map(|t| t.token.len()));
+        if let Ok(ref dt) = dev_tok_res {
+            let title_tok = auth.get_title_token_win(&dt.token, 2008767227).await.unwrap();
+            println!("Title Token obtained! len={}", title_tok.token.len());
 
-        for (i, item) in enriched.iter().enumerate() {
-            println!("[{i}] {:<40} | ProductId: {:<12} | Dev: {:<20}", item.title, item.product_id, item.developer);
+            let Token::Legacy(user_token_raw) = tokens.get_user_sts_token().unwrap() else { panic!() };
+            let user_token_resp = crate::api::live::exchange_user_token(
+                &client,
+                user_token_raw,
+                "USERNAME".to_string(),
+                device_token_raw.clone(),
+                None,
+                Some("Silent".to_string()),
+                "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+                &[(
+                    "user.auth.xboxlive.com".to_owned(),
+                    Some(crate::models::soap::PolicyReference::mbi_ssl()),
+                )],
+            ).await.unwrap();
+            let user_token_tok: Token = match user_token_resp {
+                crate::models::live::ExchangeUserTokenOutcome::Issued(
+                    crate::models::soap::BodyContent::RequestSecurityTokenResponseCollection(mut col)
+                ) => {
+                    col.security_tokens.remove(0).into()
+                }
+                crate::models::live::ExchangeUserTokenOutcome::Issued(
+                    crate::models::soap::BodyContent::RequestSecurityTokenResponse(token)
+                ) => {
+                    (*token).into()
+                }
+                other => panic!("Unexpected user_token_resp: {other:?}"),
+            };
+            let Token::Compact(user_token_compact) = user_token_tok else { panic!() };
+            let user_xbl = crate::api::xbox::authenticate_xbox_user(&client, user_token_compact).await.unwrap();
+            println!("User XBL Token obtained! len={}", user_xbl.token.len());
+
+            let xsts_token = crate::api::xbox::auth::request_xsts_token_with_claims(
+                &client,
+                Some(user_xbl.token),
+                Some(dt.token.clone()),
+                Some(title_tok.token.clone()),
+                "http://xboxlive.com",
+            ).await.unwrap();
+            let uhs = xsts_token.user_hash().unwrap_or_default();
+            println!("Full XSTS Token obtained! len={}, uhs={}", xsts_token.token.len(), uhs);
+            let auth_header = format!("XBL3.0 x={};{}", uhs, xsts_token.token);
+
+            let signer = auth.request_signer();
+            use p256::ecdsa::SigningKey;
+            use p256::ecdsa::signature::hazmat::PrehashSigner;
+            use p256::elliptic_curve::bigint::Encoding;
+
+            let signing_policy_version: i32 = 1;
+            let version_bytes = signing_policy_version.to_be_bytes();
+            let now = chrono::Utc::now();
+            let filetime_val = (now.timestamp() + 11644473600) * 10000000 + (now.timestamp_subsec_nanos() as i64 / 100);
+            let filetime_bytes = filetime_val.to_be_bytes();
+            let path_and_query = "/discovery/app/endpoint?tid=2008767227";
+
+            let prehash = xal::RequestSigner::prehash_message_data(
+                &version_bytes,
+                &filetime_bytes,
+                "GET",
+                path_and_query,
+                &auth_header,
+                &[],
+                0,
+            );
+
+            let signing_key: SigningKey = signer.keypair.clone().into();
+            let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&prehash).unwrap();
+
+            let mut sig_bytes = Vec::new();
+            sig_bytes.extend_from_slice(&version_bytes);
+            sig_bytes.extend_from_slice(&filetime_bytes);
+            sig_bytes.extend_from_slice(&signature.to_bytes());
+            use base64::Engine;
+            let sig_b64 = base64::engine::general_purpose::STANDARD.encode(&sig_bytes);
+            println!("Computed Signature header: len={}, value={sig_b64}", sig_b64.len());
+
+            let athena_url = "https://discovery.prod.athena.msrareservices.com/discovery/app/endpoint?tid=2008767227";
+            println!("\n=== QUERYING ATHENA DISCOVERY SERVICE WITH AUTH + SIGNATURE ===");
+            let resp = client.get(athena_url)
+                .header("Authorization", &auth_header)
+                .header("Signature", &sig_b64)
+                .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
+                .header("x-xbl-contract-version", "1")
+                .send()
+                .await;
+            match resp {
+                Ok(r) => {
+                    let status = r.status();
+                    let body = r.text().await.unwrap_or_default();
+                    println!("Athena Response Status: {status}");
+                    println!("Athena Response Body:\n{body}");
+                }
+                Err(e) => println!("Athena Request Error: {e}"),
+            }
         }
     }
 }

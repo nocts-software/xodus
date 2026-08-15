@@ -770,6 +770,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                     let owned_games = xodus::api::xbox::get_user_owned_catalog_items(
                                         &client,
+                                        Some(&tokens_clone),
                                         &auth_header,
                                         licensing_auth.as_deref(),
                                         xuid_str.as_deref(),

@@ -469,7 +469,7 @@ impl Database {
 
     pub fn clear_catalog_cache(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM catalog_products", [])?;
+        conn.execute("DELETE FROM catalog_cache", [])?;
         Ok(())
     }
 

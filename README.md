@@ -216,8 +216,12 @@ Contributions are welcome! Please feel free to submit pull requests, report bugs
 
 - **Discord**: [Join our Game Launchers Reverse Engineering Discord](https://discord.gg/ZG774FK4tq)
 - **Sister Projects**:
-  - [xgameruntime](https://github.com/nocts-software/xgameruntime): Open-source Wine implementation of Microsoft Gaming Runtime.
-  - [xgameruntime-docs](https://github.com/nocts-software/xgameruntime-docs): Detailed documentation of GDK COM interfaces and reverse engineering notes.
+  - [xgameruntime](https://github.com/nocts-software/xgameruntime) ([upstream](https://github.com/xodus-gaming/xgameruntime)): Open-source Wine implementation of Microsoft Gaming Runtime.
+  - [xgameruntime-docs](https://github.com/nocts-software/xgameruntime-docs) ([upstream](https://github.com/xodus-gaming/xgameruntime-docs)): Detailed documentation of GDK COM interfaces and reverse engineering notes.
+- **Original Upstream Repositories**:
+  - [xodus-gaming/xodus](https://github.com/xodus-gaming/xodus)
+  - [xodus-gaming/xgameruntime](https://github.com/xodus-gaming/xgameruntime)
+  - [xodus-gaming/xgameruntime-docs](https://github.com/xodus-gaming/xgameruntime-docs)
 
 ---
 
@@ -226,5 +230,6 @@ Contributions are welcome! Please feel free to submit pull requests, report bugs
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for complete details.
 
 ### Acknowledgments & Special Thanks
+- The original [xodus-gaming](https://github.com/xodus-gaming) organization and contributors for creating [xodus](https://github.com/xodus-gaming/xodus), [xgameruntime](https://github.com/xodus-gaming/xgameruntime), and [xgameruntime-docs](https://github.com/xodus-gaming/xgameruntime-docs).
 - [LukeFZ](https://github.com/LukeFZ) for pioneering research in `XvdTool.Streaming` and `CikExtractor`.
 - The Wine and Proton communities for runtime compatibility foundations.

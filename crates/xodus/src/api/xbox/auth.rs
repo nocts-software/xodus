@@ -32,7 +32,7 @@ pub async fn request_xsts_token(
     client: &reqwest::Client,
     token: String,
     relying_party: &str,
-) -> reqwest::Result<XstsResponse> {
+) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
     let body = XstsRequest {
         relying_party: Some(relying_party.to_string()),
         token_type: Some("JWT".to_string()),
@@ -41,6 +41,8 @@ pub async fn request_xsts_token(
             sandbox_id: Some("RETAIL".to_string()),
             delegation_token: None,
             service_token: None,
+            device_token: None,
+            title_token: None,
         },
     };
 
@@ -50,10 +52,62 @@ pub async fn request_xsts_token(
         .header("x-xbl-contract-version", "1")
         .json(&body)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
 
-    resp.json().await
+    let status = resp.status();
+    let text = resp.text().await?;
+    if !status.is_success() {
+        log::warn!("[XSTS AUTH] Authorization failed for RP '{relying_party}': HTTP {status} - {text}");
+        return Err(format!("XSTS HTTP {status}: {text}").into());
+    }
+
+    let xsts: XstsResponse = serde_json::from_str(&text).map_err(|e| {
+        log::error!("[XSTS AUTH] Failed to parse XSTS JSON: {e}");
+        format!("XSTS JSON error: {e}")
+    })?;
+    Ok(xsts)
+}
+
+pub async fn request_xsts_token_with_claims(
+    client: &reqwest::Client,
+    user_token: Option<String>,
+    device_token: Option<String>,
+    title_token: Option<String>,
+    relying_party: &str,
+) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    let body = XstsRequest {
+        relying_party: Some(relying_party.to_string()),
+        token_type: Some("JWT".to_string()),
+        properties: XstsPropertyBag {
+            user_tokens: user_token.map(|u| vec![u]),
+            sandbox_id: Some("RETAIL".to_string()),
+            delegation_token: None,
+            service_token: None,
+            device_token,
+            title_token,
+        },
+    };
+
+    let resp = client
+        .post("https://xsts.auth.xboxlive.com/xsts/authorize")
+        .header("Content-Type", "application/json")
+        .header("x-xbl-contract-version", "1")
+        .json(&body)
+        .send()
+        .await?;
+
+    let status = resp.status();
+    let text = resp.text().await?;
+    if !status.is_success() {
+        log::warn!("[XSTS AUTH] Authorization failed for RP '{relying_party}': HTTP {status} - {text}");
+        return Err(format!("XSTS HTTP {status}: {text}").into());
+    }
+
+    let xsts: XstsResponse = serde_json::from_str(&text).map_err(|e| {
+        log::error!("[XSTS AUTH] Failed to parse XSTS JSON: {e}");
+        format!("XSTS JSON error: {e}")
+    })?;
+    Ok(xsts)
 }
 
 pub fn get_xsts_auth_header(xsts: XstsResponse) -> String {

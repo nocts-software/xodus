@@ -85,6 +85,12 @@ pub struct XstsPropertyBag {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegation_token: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_token: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

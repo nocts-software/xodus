@@ -6824,6 +6824,7 @@ dependencies = [
  "num-bigint-dig 0.9.1",
  "num-integer",
  "num_enum",
+ "p256",
  "prost",
  "prost-build",
  "quick-xml",

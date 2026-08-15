@@ -685,6 +685,25 @@ pub async fn run(
         let _ = std::os::unix::fs::symlink(&cached_exe, &game_binary_in_run);
     }
 
+    // Deploy GDK runtime DLLs directly into run_dir, executable directories, and prefix system32
+    let runtime_dir = format!("{}/.local/share/xodus/runtime", home);
+    let dll_names = ["xgameruntime.dll", "twinapi.appcore.dll", "api-ms-win-core-psm-appnotify-l1-1-0.dll", "xgameruntime.dll.so", "twinapi.appcore.dll.so"];
+    for dll in &dll_names {
+        let src_dll = Path::new(&runtime_dir).join(dll);
+        if src_dll.exists() {
+            let _ = std::fs::copy(&src_dll, run_dir.join(dll));
+            for (_, dec_path) in &decrypted_exes {
+                if let Some(p) = dec_path.parent() {
+                    let _ = std::fs::copy(&src_dll, p.join(dll));
+                }
+            }
+            let sys32 = compat_data_for_eac.join("pfx").join("drive_c").join("windows").join("system32");
+            if sys32.exists() {
+                let _ = std::fs::copy(&src_dll, sys32.join(dll));
+            }
+        }
+    }
+
     // exec_target MUST be the decrypted binary in run_dir (symlink to cached decrypted PE).
     // content_dir has the encrypted GDK binaries which Wine cannot execute (error 193).
     let exec_target = game_binary_in_run.clone();
