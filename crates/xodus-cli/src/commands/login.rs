@@ -26,11 +26,16 @@ pub async fn run(client: &reqwest::Client, tokens: &TokenManager) -> ExitCode {
         }
         Some(soap::BodyContent::RequestSecurityTokenResponse(token)) => vec![*token],
         None => {
-            eprintln!("Didn't log in");
-            vec![]
+            eprintln!("Login incomplete: Authentication window closed before sign-in completed. Please run 'xodus login' again and complete sign-in in the webview window.");
+            return ExitCode::FAILURE;
         }
         _ => unreachable!(),
     };
+
+    if issued_tokens.is_empty() {
+        eprintln!("Login incomplete: No authentication tokens issued. Please try 'xodus login' again.");
+        return ExitCode::FAILURE;
+    }
 
     for token in issued_tokens {
         let address = token.applies_to.endpoint_reference.address.clone();
@@ -43,8 +48,10 @@ pub async fn run(client: &reqwest::Client, tokens: &TokenManager) -> ExitCode {
         tokens.save_user_token(address, token).unwrap();
     }
 
+    println!("Successfully signed into Microsoft account!");
     ExitCode::SUCCESS
 }
+
 
 struct LoginHandler {
     client: reqwest::Client,

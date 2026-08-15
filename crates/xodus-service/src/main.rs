@@ -6,12 +6,9 @@ use tokio::net::UnixListener;
 use tokio_util::sync::CancellationToken;
 use xodus::tokens::TokenManager;
 
-mod connection;
-mod simple_context;
-mod utils;
+use xodus_service::connection;
+use xodus_service::utils;
 
-const XML_MAGIC: u32 = 0x58445358;
-const PROTO_MAGIC: u32 = 0x58445350;
 
 #[tokio::main]
 async fn main() {

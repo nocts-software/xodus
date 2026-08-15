@@ -9,7 +9,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use msixvc::streaming;
 use msixvc::xvd::{SegmentFile, XvdFile};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+
+
 use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 use xodus::tokens::TokenManager;
@@ -30,6 +32,120 @@ enum ProgressEvent {
     UpdateStatus { name: String },
 }
 
+pub struct CompositeVolumeReader {
+    files: Vec<(u64, u64, std::fs::File)>,
+    length: u64,
+    pos: u64,
+}
+
+impl CompositeVolumeReader {
+    pub async fn new(primary_path: &Path) -> std::io::Result<Self> {
+        let mut files = Vec::new();
+
+        let p_file = std::fs::File::open(primary_path)?;
+        let p_len = p_file.metadata()?.len();
+        files.push((0u64, p_len, p_file));
+
+        let parent = primary_path.parent().unwrap_or(primary_path);
+        let content_dir = parent.join("Content");
+        let mut current_offset = 7_073_792u64;
+
+        if content_dir.exists() {
+            let candidates = ["data.hvp", "boot.hvp"];
+            for candidate in candidates {
+                let candidate_path = content_dir.join(candidate);
+                if candidate_path.exists() {
+                    if let Ok(f) = std::fs::File::open(&candidate_path) {
+                        if let Ok(meta) = f.metadata() {
+                            let len = meta.len();
+                            files.push((current_offset, current_offset + len, f));
+                            current_offset += len;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            files,
+            length: current_offset,
+            pos: 0,
+        })
+    }
+
+    pub fn len(&self) -> u64 {
+        self.length
+    }
+}
+
+impl tokio::io::AsyncSeek for CompositeVolumeReader {
+    fn start_seek(mut self: std::pin::Pin<&mut Self>, pos: std::io::SeekFrom) -> std::io::Result<()> {
+        let new_pos = match pos {
+            std::io::SeekFrom::Start(off) => off as i64,
+            std::io::SeekFrom::Current(off) => self.pos as i64 + off,
+            std::io::SeekFrom::End(off) => self.length as i64 + off,
+        };
+        if new_pos < 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "negative seek"));
+        }
+        self.pos = new_pos as u64;
+        Ok(())
+    }
+
+    fn poll_complete(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<u64>> {
+        std::task::Poll::Ready(Ok(self.pos))
+    }
+}
+
+impl AsyncRead for CompositeVolumeReader {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::io::{Read, Seek};
+        let pos = self.pos;
+        let len = self.length;
+        if pos >= len {
+            return std::task::Poll::Ready(Ok(()));
+        }
+
+        let mut matched = None;
+        for (start, end, f) in self.files.iter_mut() {
+            if pos >= *start && pos < *end {
+                matched = Some((*start, f));
+                break;
+            }
+        }
+
+        if let Some((start_offset, file)) = matched {
+            let inner_pos = pos - start_offset;
+            if let Err(e) = file.seek(std::io::SeekFrom::Start(inner_pos)) {
+                return std::task::Poll::Ready(Err(e));
+            }
+            let unfilled = buf.initialize_unfilled();
+            match file.read(unfilled) {
+                Ok(n) => {
+                    buf.advance(n);
+                    self.pos += n as u64;
+                    std::task::Poll::Ready(Ok(()))
+                }
+                Err(e) => std::task::Poll::Ready(Err(e)),
+            }
+        } else {
+            let next_start = self.files.iter().map(|(s, _, _)| *s).find(|s| *s > pos).unwrap_or(len);
+            let to_fill = std::cmp::min((next_start - pos) as usize, buf.remaining());
+            let unfilled = buf.initialize_unfilled();
+            unfilled[..to_fill].fill(0);
+            buf.advance(to_fill);
+            self.pos += to_fill as u64;
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+}
+
+
+
 pub async fn run(
     client: &reqwest::Client,
     tokens: &TokenManager,
@@ -42,8 +158,8 @@ pub async fn run(
     let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
     if source.starts_with("file://") {
         let fsrc = source.strip_prefix("file://").unwrap_or_default();
-        let f = File::open(fsrc).await.unwrap();
-        let l = f.metadata().await.unwrap().len();
+        let composite = CompositeVolumeReader::new(Path::new(fsrc)).await.unwrap();
+        let l = composite.len();
         run_cli_reader(
             client,
             tokens,
@@ -51,7 +167,7 @@ pub async fn run(
             try_skip_ntfs,
             parallel,
             market,
-            f,
+            composite,
             l,
             &source,
             &tx,
@@ -59,6 +175,7 @@ pub async fn run(
         )
         .await;
     } else {
+
         let vurl = if source.starts_with("http://") || source.starts_with("https://") {
             source
         } else {
@@ -239,7 +356,9 @@ where
         .await
         .expect("no err");
     let remote_xvd = XvdFile::parse(&mut remote_file).await.expect("no err");
+    println!("Encrypted section infos: {:?}", remote_xvd.encrypted_section_infos);
     let mut rfiles: HashMap<String, SegmentFile> = HashMap::new();
+
     let mut lfiles: HashMap<String, SegmentFile> = HashMap::new();
 
     let files = remote_xvd
@@ -428,13 +547,23 @@ where
             .ok();
 
             if let Some(fpath) = url.strip_prefix("file://") {
-                let mut i = File::open(&fpath).await.unwrap();
-                remote_xvd_ref
-                    .extract_file(&mut i, &mut fout, &job.content, *full_key, progress)
+                let mut composite = CompositeVolumeReader::new(Path::new(&fpath)).await.expect("ok");
+                if let Err(err) = remote_xvd_ref
+                    .extract_file(&mut composite, &mut fout, &job.content, *full_key, progress)
                     .await
-                    .expect("msg");
+                {
+                    eprintln!("Failed to extract file {}: {}", job.name, err);
+                }
+                let _ = fout.flush().await;
                 tx.send(ProgressEvent::Finished { id }).await.ok();
             } else {
+
+
+
+
+
+
+
                 remote_xvd_ref
                     .download_file_http(&client, url, &mut fout, &job.content, *full_key, progress)
                     .await

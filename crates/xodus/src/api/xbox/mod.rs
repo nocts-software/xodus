@@ -4,8 +4,14 @@ use crate::models::soap;
 use crate::models::xbox::XstsResponse;
 
 pub mod auth;
+pub mod mpsd;
 pub mod title;
+pub mod titlestorage;
 pub use auth::{authenticate_xbox_user, get_xsts_auth_header, request_xsts_token};
+pub use mpsd::{MatchmakingTicketRequest, MatchmakingTicketResponse, MpsdClient, MultiplayerSession, SessionMember, SessionReference};
+pub use titlestorage::{TitleStorageBlobList, TitleStorageBlobMetadata, TitleStorageClient};
+
+
 
 pub async fn run(
     client: &reqwest::Client,
@@ -57,3 +63,25 @@ pub async fn run(
         .await
         .expect("Failed to authenticate Xbox user")
 }
+
+pub async fn get_or_request_xsts(
+    client: &reqwest::Client,
+    tokens: &crate::tokens::TokenManager,
+    relying_party: &str,
+) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(cached) = tokens.get_cached_xsts(relying_party) {
+        if cached.not_after > chrono::Utc::now() + chrono::Duration::minutes(5) {
+            return Ok(cached);
+        }
+    }
+    let Token::Legacy(dev_token) = tokens.get_device_sts_token()? else {
+        return Err("Device token is not legacy".into());
+    };
+    let Token::Legacy(user_token) = tokens.get_user_sts_token()? else {
+        return Err("User token is not legacy".into());
+    };
+    let xsts = run(client, dev_token, user_token, relying_party).await;
+    tokens.cache_xsts(relying_party, &xsts);
+    Ok(xsts)
+}
+

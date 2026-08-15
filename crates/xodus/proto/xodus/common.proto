@@ -6,6 +6,164 @@ enum XodusMessageType {
     UNKNOWN = 0;
     PING = 1;
     PONG = 2;
-    MSA_TOKEN_REQUEST=3;
-    MSA_TOKEN_RESPONSE=4;
+    MSA_TOKEN_REQUEST = 3;
+    MSA_TOKEN_RESPONSE = 4;
+    XUSER_ADD_REQUEST = 5;
+    XUSER_ADD_RESPONSE = 6;
+    XUSER_GET_GAMERTAG_REQUEST = 7;
+    XUSER_GET_GAMERTAG_RESPONSE = 8;
+    XUSER_GET_TOKEN_REQUEST = 9;
+    XUSER_GET_TOKEN_RESPONSE = 10;
+    XSTORE_QUERY_LICENSE_REQUEST = 11;
+    XSTORE_QUERY_LICENSE_RESPONSE = 12;
+    XGAMESAVE_READ_BLOB_REQUEST = 13;
+    XGAMESAVE_READ_BLOB_RESPONSE = 14;
+    XGAMESAVE_WRITE_BLOB_REQUEST = 15;
+    XGAMESAVE_WRITE_BLOB_RESPONSE = 16;
+    XUSER_GET_GAMER_PICTURE_REQUEST = 17;
+    XUSER_GET_GAMER_PICTURE_RESPONSE = 18;
+    XUSER_CHECK_PRIVILEGE_REQUEST = 19;
+    XUSER_CHECK_PRIVILEGE_RESPONSE = 20;
+    XSTORE_QUERY_PRODUCTS_REQUEST = 21;
+    XSTORE_QUERY_PRODUCTS_RESPONSE = 22;
+    XSTORE_ACQUIRE_LICENSE_REQUEST = 23;
+    XSTORE_ACQUIRE_LICENSE_RESPONSE = 24;
+    XGAMESAVE_ENUMERATE_BLOBS_REQUEST = 25;
+    XGAMESAVE_ENUMERATE_BLOBS_RESPONSE = 26;
 }
+
+message XodusMessage {
+    XodusMessageType msg_type = 1;
+    uint64 request_id = 2;
+    bytes payload = 3;
+}
+
+message XUserAddRequest {
+    uint32 options = 1;
+}
+
+message XUserAddResponse {
+    uint32 status = 1;
+    uint64 user_id = 2;
+    string xuid = 3;
+    string gamertag = 4;
+}
+
+message XUserGetGamertagRequest {
+    uint64 user_id = 1;
+}
+
+message XUserGetGamertagResponse {
+    uint32 status = 1;
+    string gamertag = 2;
+}
+
+message XUserGetTokenRequest {
+    uint64 user_id = 1;
+    string relying_party = 2;
+}
+
+message XUserGetTokenResponse {
+    uint32 status = 1;
+    string token = 2;
+    string signature = 3;
+}
+
+message XUserGetGamerPictureRequest {
+    uint64 user_id = 1;
+    uint32 picture_size = 2;
+}
+
+message XUserGetGamerPictureResponse {
+    uint32 status = 1;
+    bytes picture_data = 2;
+}
+
+message XUserCheckPrivilegeRequest {
+    uint64 user_id = 1;
+    uint32 privilege = 2;
+}
+
+message XUserCheckPrivilegeResponse {
+    uint32 status = 1;
+    bool has_privilege = 2;
+    uint32 deny_reason = 3;
+}
+
+message XStoreQueryLicenseRequest {
+    uint64 user_id = 1;
+    string product_id = 2;
+}
+
+message XStoreQueryLicenseResponse {
+    uint32 status = 1;
+    bool is_licensed = 2;
+    bytes license_blob = 3;
+}
+
+message XStoreQueryProductsRequest {
+    uint64 user_id = 1;
+    uint32 product_kinds = 2;
+    repeated string store_ids = 3;
+}
+
+message XStoreQueryProductsResponse {
+    uint32 status = 1;
+    uint32 count = 2;
+    string products_json = 3;
+}
+
+message XStoreAcquireLicenseRequest {
+    uint64 user_id = 1;
+    string package_id = 2;
+}
+
+message XStoreAcquireLicenseResponse {
+    uint32 status = 1;
+    bool is_licensed = 2;
+    bytes license_blob = 3;
+}
+
+message XGameSaveReadBlobRequest {
+    uint64 user_id = 1;
+    string scid = 2;
+    string container_name = 3;
+    string blob_name = 4;
+}
+
+message XGameSaveReadBlobResponse {
+    uint32 status = 1;
+    bytes data = 2;
+}
+
+message XGameSaveWriteBlobRequest {
+    uint64 user_id = 1;
+    string scid = 2;
+    string container_name = 3;
+    string blob_name = 4;
+    bytes data = 5;
+}
+
+message XGameSaveWriteBlobResponse {
+    uint32 status = 1;
+}
+
+message XGameSaveBlobInfo {
+    string name = 1;
+    uint32 size = 2;
+}
+
+message XGameSaveEnumerateBlobsRequest {
+    uint64 user_id = 1;
+    string scid = 2;
+    string container_name = 3;
+}
+
+message XGameSaveEnumerateBlobsResponse {
+    uint32 status = 1;
+    repeated XGameSaveBlobInfo blobs = 2;
+}
+
+
+
+

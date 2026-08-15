@@ -59,15 +59,29 @@ enum SubCommand {
         market: Option<String>,
     },
     #[cfg(unix)]
-    #[command(about = "Run a Game with xodus wine")]
+    #[command(about = "Run a Game in-place with xodus wine")]
     Run {
         source: String,
+        #[arg(short, long, default_value = "wine", help = "Wine / Proton binary to use (default: wine)")]
         wine: String,
         #[arg(short, long)]
         exe: Option<String>,
         #[arg(short, long)]
         market: Option<String>,
     },
+
+    #[command(about = "Manage Xbox Live cloud saves (pull/push/status)")]
+    Save {
+        #[command(subcommand)]
+        action: SaveAction,
+    },
+
+    #[command(about = "Manage Xbox Live multiplayer sessions and matchmaking")]
+    Mpsd {
+        #[command(subcommand)]
+        action: MpsdAction,
+    },
+
     #[command(about = "Generate or decrypt base64-encoded CLEP challenge data")]
     Clep {
         #[command(subcommand)]
@@ -78,6 +92,45 @@ enum SubCommand {
         block: String,
     },
 }
+
+#[derive(Subcommand)]
+enum MpsdAction {
+    #[command(about = "List active multiplayer sessions for a title")]
+    List {
+        #[clap(help = "Path to game directory or MSIXVC container")]
+        source: String,
+        #[arg(short, long, help = "Session template name (e.g. LobbySession, GameSession)")]
+        template: Option<String>,
+    },
+    #[command(about = "Queue for SmartMatch matchmaking in a hopper")]
+    Match {
+        #[clap(help = "Path to game directory or MSIXVC container")]
+        source: String,
+        #[clap(help = "Matchmaking hopper name (e.g. QuickMatch, Ranked)")]
+        hopper: String,
+    },
+}
+
+
+#[derive(Subcommand)]
+enum SaveAction {
+    #[command(about = "Pull cloud saves from Xbox Live to local storage")]
+    Pull {
+        #[clap(help = "Path to game directory or MSIXVC container")]
+        source: String,
+    },
+    #[command(about = "Push local saves to Xbox Live cloud storage")]
+    Push {
+        #[clap(help = "Path to game directory or MSIXVC container")]
+        source: String,
+    },
+    #[command(about = "Show local and cloud save status")]
+    Status {
+        #[clap(help = "Path to game directory or MSIXVC container")]
+        source: String,
+    },
+}
+
 
 #[derive(Subcommand)]
 enum ClepAction {
@@ -185,7 +238,21 @@ async fn main() -> ExitCode {
             exe,
             market,
         } => commands::run::run(&client, &tokens, source, wine, exe, market).await,
+        SubCommand::Save { action } => match action {
+            SaveAction::Pull { source } => commands::save::pull(&client, &tokens, source).await,
+            SaveAction::Push { source } => commands::save::push(&client, &tokens, source).await,
+            SaveAction::Status { source } => commands::save::status(&client, &tokens, source).await,
+        },
+        SubCommand::Mpsd { action } => match action {
+            MpsdAction::List { source, template } => {
+                commands::mpsd::list(&client, &tokens, source, template).await
+            }
+            MpsdAction::Match { source, hopper } => {
+                commands::mpsd::matchmake(&client, &tokens, source, hopper).await
+            }
+        },
         SubCommand::Clep { action } => match action {
+
             ClepAction::Generate {
                 smbios,
                 disk_serial,
@@ -194,6 +261,7 @@ async fn main() -> ExitCode {
         },
         SubCommand::SpLicense { block } => commands::splicense::run(block),
     };
+
 
     xodus::secrets::destroy_secrets();
 

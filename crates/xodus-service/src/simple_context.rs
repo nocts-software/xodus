@@ -26,7 +26,18 @@ impl SimpleContext {
         }
     }
 
+    pub fn mock() -> Self {
+        let client = reqwest::Client::new();
+        let tokens = Arc::new(TokenManager::with_keychain_and_memory());
+        Self {
+            client,
+            device_token: None,
+            tokens,
+        }
+    }
+
     pub fn tokens(&self) -> &Arc<TokenManager> {
         &self.tokens
     }
 }
+

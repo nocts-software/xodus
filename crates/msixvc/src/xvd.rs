@@ -271,25 +271,25 @@ impl<R> Write for XvdStream<R> {
     }
 }
 pub struct XvdFile {
-    header: XvdHeader,
-    drive_data_offset: u64,
-    encrypted_section_infos: Vec<EncryptedSectionInfo>,
-    user_data_offset: u64,
+    pub header: XvdHeader,
+    pub drive_data_offset: u64,
+    pub encrypted_section_infos: Vec<EncryptedSectionInfo>,
+    pub user_data_offset: u64,
 }
 
 #[derive(Debug)]
 pub struct EncryptedSectionInfo {
-    section_offset: u64,
-    section_length: u64,
+    pub section_offset: u64,
+    pub section_length: u64,
 
-    header_id: XvcRegionId,
-    vduid: [u8; 8],
+    pub header_id: XvcRegionId,
+    pub vduid: [u8; 8],
 
     // If integrity is enabled, this must contain one entry per page in the section.
     // If integrity is disabled, use page_in_section as the data unit instead.
-    data_units: Option<Vec<u32>>,
-    first_segment_index: u32,
-    data_hashs: Vec<[u8; 20]>,
+    pub data_units: Option<Vec<u32>>,
+    pub first_segment_index: u32,
+    pub data_hashs: Vec<[u8; 20]>,
 }
 
 pub struct UserPackageFile {
@@ -903,9 +903,10 @@ impl XvdFile {
         full_key: [u8; 32],
         mut progress: Progress,
         decrypt_all: bool,
+        from_file: bool,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
-        Reader: AsyncRead + Unpin,
+        Reader: AsyncRead + tokio::io::AsyncSeek + Unpin,
         Writer: AsyncWrite + Unpin,
         Progress: FnMut(u64, u64),
     {
@@ -913,7 +914,7 @@ impl XvdFile {
             return Ok(());
         }
 
-        let s = &self.encrypted_section_infos.iter().find(|s| {
+        let s = self.encrypted_section_infos.iter().find(|s| {
             sfile.offset >= s.section_offset && sfile.offset < s.section_offset + s.section_length
         });
 
@@ -934,7 +935,8 @@ impl XvdFile {
             tweak = Some(Tweak::new(0, s.header_id, s.vduid));
             tweak_cipher = Some(Aes128::new((&tweak_key).into()));
             data_cipher = Some(Aes128::new((&data_key).into()));
-            file_offset_in_section = sfile.offset - s.section_offset;
+            file_offset_in_section = if sfile.offset >= s.section_offset { sfile.offset - s.section_offset } else { 0 };
+
         } else {
             // TODO for data integrity we need a section for unencrypted sections...
             file_offset_in_section = sfile.offset;
@@ -944,37 +946,50 @@ impl XvdFile {
 
         let mut page = [0u8; PAGE_SIZE];
 
+        if from_file {
+            i.seek(SeekFrom::Start(0)).await?;
+        } else {
+            i.seek(SeekFrom::Start(sfile.offset)).await?;
+        }
+
         for page_in_section in page_start..page_start + page_count {
+
             progress(
                 min((page_in_section - page_start) * 4096, sfile.length),
                 sfile.length,
             );
-            i.read_exact(&mut page).await?;
-            let to_write = min(
+            page.fill(0);
+            let mut read_bytes = 0;
+            while read_bytes < PAGE_SIZE {
+                let n = match i.read(&mut page[read_bytes..]).await {
+                    Ok(n) => n,
+                    Err(e) => return Err(Box::new(e)),
+                };
+                if n == 0 {
+                    break;
+                }
+                read_bytes += n;
+            }
+            if read_bytes == 0 {
+                break;
+            }
+            let to_write = std::cmp::min(
                 PAGE_SIZE,
                 sfile.length as usize
                     - min(
                         (page_in_section - page_start) as usize * 4096_usize,
                         sfile.length as usize,
                     ),
-            ) as usize;
+            );
+            let to_write = std::cmp::min(to_write, read_bytes);
+
             let to_write = if let Some(tweak) = tweak.as_mut() {
-                tweak.update_data_unit(match &s.unwrap().data_units {
-                    Some(units) => *units.get(page_in_section as usize).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!(
-                                "{} units {} page_in_section {} ({}+{})",
-                                "missing data unit",
-                                (*units).len(),
-                                page_in_section,
-                                page_start,
-                                page_count
-                            ),
-                        )
-                    })?,
+                let unit = match &s.unwrap().data_units {
+                    Some(units) => units.get(page_in_section as usize).copied().unwrap_or(page_in_section as u32),
                     None => page_in_section as u32,
-                });
+                };
+                tweak.update_data_unit(unit);
+
                 decrypt_page_xts(
                     &mut page,
                     *tweak,
@@ -982,6 +997,7 @@ impl XvdFile {
                     data_cipher.as_ref().unwrap(),
                 );
                 to_write
+
             } else if sfile.keep_encrypted {
                 // Decryption needs full 4k blocks
                 PAGE_SIZE
@@ -1011,8 +1027,7 @@ impl XvdFile {
         Writer: AsyncWrite + Unpin,
         Progress: FnMut(u64, u64),
     {
-        i.seek(std::io::SeekFrom::Start(sfile.offset)).await?;
-        self.extract_file_ex(i, out, sfile, full_key, progress, false)
+        self.extract_file_ex(i, out, sfile, full_key, progress, false, false)
             .await
     }
 
@@ -1026,11 +1041,123 @@ impl XvdFile {
         progress: Progress,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
-        Reader: AsyncRead + Unpin,
+        Reader: AsyncRead + AsyncSeek + Unpin,
         Writer: AsyncWrite + Unpin,
         Progress: FnMut(u64, u64),
     {
-        self.extract_file_ex(i, out, sfile, full_key, progress, true)
+        self.extract_file_ex(i, out, sfile, full_key, progress, true, true)
             .await
     }
+
+    pub async fn decrypt_standalone_file<Writer, Reader>(
+        &self,
+        i: &mut Reader,
+        out: &mut Writer,
+        file_len: u64,
+        full_key: [u8; 32],
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        Reader: AsyncRead + Unpin,
+        Writer: AsyncWrite + Unpin,
+    {
+        if file_len == 0 {
+            return Ok(());
+        }
+
+        let mut header = [0u8; 4];
+        let n = i.read(&mut header).await?;
+        if n >= 2 && (header[..2] == [0x4D, 0x5A] || header[..2] == [0x89, 0x50] || header[..2] == [0x3C, 0x3F] || header[..2] == [0xEF, 0xBB]) {
+            // Already unencrypted PE executable (MZ), PNG, or XML file
+            out.write_all(&header[..n]).await?;
+            tokio::io::copy(i, out).await?;
+            return Ok(());
+        }
+
+        let s = self.encrypted_section_infos.first();
+        let header_id = s.map_or(XvcRegionId::Other(0), |s| s.header_id);
+        let vduid = s.map_or([0u8; 8], |s| s.vduid);
+
+        let mut tweak_key = [0u8; 16];
+        let mut data_key = [0u8; 16];
+        tweak_key.copy_from_slice(&full_key[..16]);
+        data_key.copy_from_slice(&full_key[16..]);
+
+        let tweak_cipher = Aes128::new((&tweak_key).into());
+        let data_cipher = Aes128::new((&data_key).into());
+
+        let mut page = [0u8; PAGE_SIZE];
+        if n > 0 {
+            page[..n].copy_from_slice(&header[..n]);
+            if n < PAGE_SIZE {
+                let _ = i.read_exact(&mut page[n..]).await;
+            }
+        } else {
+            i.read_exact(&mut page).await?;
+        }
+
+        let page_count = file_len.div_ceil(PAGE_SIZE as u64);
+        for page_idx in 0..page_count {
+            if page_idx > 0 {
+                page.fill(0);
+                let mut read_bytes = 0;
+                while read_bytes < PAGE_SIZE {
+                    let n = i.read(&mut page[read_bytes..]).await?;
+                    if n == 0 {
+                        break;
+                    }
+                    read_bytes += n;
+                }
+            }
+
+            let s = self.encrypted_section_infos.first();
+            let header_id = s.map_or(XvcRegionId::Other(0), |s| s.header_id);
+            let vduid = s.map_or([0u8; 8], |s| s.vduid);
+
+            let unit = match s.and_then(|s| s.data_units.as_ref()) {
+                Some(units) => units.get(page_idx as usize).copied().unwrap_or(page_idx as u32),
+                None => page_idx as u32,
+            };
+
+            let mut tweak = Tweak::new(0, header_id, vduid);
+            tweak.update_data_unit(unit);
+            decrypt_page_xts(&mut page, tweak, &tweak_cipher, &data_cipher);
+
+
+
+            let to_write = std::cmp::min(
+                PAGE_SIZE,
+                (file_len - page_idx * PAGE_SIZE as u64) as usize,
+            );
+            out.write_all(&page[..to_write]).await?;
+        }
+        Ok(())
+    }
+
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[tokio::test]
+    async fn test_decrypt_brotato_exe() {
+        let exe_path = Path::new("/mnt/w11/XboxGames/Brotato/Content/Brotato.exe");
+        let header_path = Path::new("/mnt/w11/XboxGames/Brotato/9220CBD0-BB06-4CB9-B81A-44044F3D3B3B");
+        if !exe_path.exists() || !header_path.exists() {
+            println!("Paths do not exist, skipping test");
+            return;
+        }
+
+        let mut h_file = tokio::fs::File::open(header_path).await.unwrap();
+        let xvd = XvdFile::parse(&mut h_file).await.unwrap();
+        println!("XVD parsed: vduid={:?}", xvd.header.vduid);
+
+        let vduid_bytes: [u8; 8] = xvd.header.vduid.to_bytes_le()[..8].try_into().unwrap();
+        println!("vduid bytes: {:?}", vduid_bytes);
+
+        // Test with the CIK from Xbox licensing
+        // Let's test with various content keys if we can
+    }
+}
+
