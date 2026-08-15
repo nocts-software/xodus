@@ -43,6 +43,9 @@ enum SubCommand {
         #[arg(long, default_value_t = false, help = "Remove device license")]
         device: bool,
     },
+    #[command(about = "Display current Microsoft account, Xbox Live profile, and entitlement status")]
+    Status,
+
     #[command(about = "Download and extract the game through streaming algorithm")]
     Streaming {
         source: String,
@@ -199,6 +202,8 @@ async fn main() -> ExitCode {
         }
         SubCommand::Login => commands::login::run(&client, &tokens).await,
         SubCommand::Logout { device } => commands::logout::run(&tokens, device).await,
+        SubCommand::Status => commands::status::run(&client, &tokens).await,
+
         SubCommand::Extract {
             path,
             destination,

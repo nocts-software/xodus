@@ -5,10 +5,11 @@ const state = {
   filter: 'all',
   searchQuery: '',
   user: {
-    gamertag: 'noct',
-    puid: '2533274839201029',
+    gamertag: 'nocatix',
+    puid: '0003BFFDB416EF4E',
     presence: 'Active',
-    avatar: 'https://images.unsplash.com/photo-1566492031773-4f4e44671857?w=128&auto=format&fit=crop&q=80',
+    gamerscore: '20227',
+    avatar: 'https://images-eds-ssl.xboxlive.com/image?url=8Oaj9Ryq1G1_p3lLnXlsaZgGzAie6Mnu24_PawYuDYIoH77pJ.X5Z.MqQPibUVTcS9jr0n8i7LY1tL3U7AiafQlcpGDAiHI1vgxmFGi1m3EKZRqEIJxcDZa.OAt89g5A&format=png',
   },
   games: [
     {
@@ -85,36 +86,37 @@ const state = {
       installed: false,
       size: '48.5 GB',
       path: '/mnt/w11/XboxGames/HaloInfinite',
-      cover: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://store-images.s-microsoft.com/image/apps.3823.14330850369313893.a687698c-b891-44f6-9576-fe28978ce915.5aada4fa-d850-4eb5-9100-33a81a5cde09',
       cloudSynced: false,
       lastPlayed: 'Last month'
     },
     {
       id: '9P2N57MC619K',
       productId: '9P2N57MC619K',
-      title: 'Sea of Thieves: 2024 Edition',
+      title: 'Sea of Thieves',
       developer: 'Rare Ltd / Xbox Game Studios',
       licenseType: 'gamepass',
       installed: false,
       size: '82.1 GB',
       path: '/mnt/w11/XboxGames/SeaOfThieves',
-      cover: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://store-images.s-microsoft.com/image/apps.29206.14554784103656548.069efce3-9249-4074-a169-183b727043f8.03688f8c-edc0-416b-bebb-9d98a01c25f5',
       cloudSynced: true,
       lastPlayed: '3 weeks ago'
     },
     {
-      id: '9NXP44L490S6',
-      productId: '9NXP44L490S6',
-      title: 'Minecraft: Java & Bedrock Edition',
+      id: '9NBLGGH2JHXJ',
+      productId: '9NBLGGH2JHXJ',
+      title: 'Minecraft for Windows',
       developer: 'Mojang Studios / Xbox Game Studios',
       licenseType: 'owned',
       installed: false,
       size: '1.2 GB',
       path: '/mnt/w11/XboxGames/Minecraft',
-      cover: 'https://images.unsplash.com/photo-1627856013091-fed6e4e30025?w=600&auto=format&fit=crop&q=80',
+      cover: 'https://store-images.s-microsoft.com/image/apps.415.13510798885735219.53a3b855-fde7-4304-925c-9db1cd1c34a8.b07e27c9-cdb1-4433-982b-7df0888f871c',
       cloudSynced: true,
       lastPlayed: 'Yesterday'
     },
+
     {
       id: '9NZ5W0R3W4F5',
       productId: '9NZ5W0R3W4F5',
@@ -312,6 +314,7 @@ const state = {
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
+  setupIPCBridge();
   setupNavigation();
   setupWindowControls();
   setupCustomDropdowns();
@@ -320,8 +323,19 @@ document.addEventListener('DOMContentLoaded', () => {
   renderGames();
   renderSaves();
   renderFriends();
-  setupIPCBridge();
+
+  const authBtn = document.getElementById('authButton');
+  if (authBtn) {
+    authBtn.addEventListener('click', () => {
+      showToast('Opening Microsoft Sign-In...');
+      sendNativeCommand({ cmd: 'login' });
+    });
+  }
+
+  // Request live Xbox Live profile, friends, and entitlements from backend
+  sendNativeCommand({ cmd: 'init' });
 });
+
 
 function setupCustomDropdowns() {
   setupSingleDropdown('presenceDropdown', 'presenceTrigger', (value) => {

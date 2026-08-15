@@ -108,8 +108,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 });
                             }
                         }
-                        "sync_licenses" => {
-                            log::info!("Querying Microsoft Account digital licenses and entitlements...");
+                        "init" | "sync_licenses" | "get_friends" | "get_profile" => {
+                            log::info!("Querying Microsoft Account digital licenses, profile, and Xbox Live friends...");
                             let tokens_clone = tokens_ipc.clone();
                             let proxy_tokio = proxy_ipc.clone();
                             rt.spawn(async move {
@@ -132,6 +132,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             });
+                        }
+                        "login" => {
+                            log::info!("Triggering Microsoft login flow...");
+                            let tokens_clone = tokens_ipc.clone();
+                            let proxy_tokio = proxy_ipc.clone();
+                            rt.spawn(async move {
+                                let child = tokio::process::Command::new("xodus")
+                                    .arg("login")
+                                    .spawn();
+                                if let Ok(mut c) = child {
+                                    let _ = c.wait().await;
+                                    let client = reqwest::Client::new();
+                                    if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_clone, "http://xboxlive.com").await {
+                                        let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
+                                        if let Ok(Some(profile)) = xodus::api::xbox::get_user_profile(&client, &auth_header).await {
+                                            if let Ok(json_str) = serde_json::to_string(&profile) {
+                                                let script = format!("if (window.setUserData) window.setUserData({json_str});");
+                                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                            }
+                                        }
+                                        if let Ok(friends) = xodus::api::xbox::SocialClient::new(&client).get_friends(&auth_header).await {
+                                            if let Ok(json_str) = serde_json::to_string(&friends) {
+                                                let script = format!("if (window.setFriendsData) window.setFriendsData({json_str});");
+                                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        "logout" => {
+                            let _ = tokens_ipc.remove_user();
+                            let script = "if (window.showToast) window.showToast('Logged out of Microsoft Account');";
+                            let _ = proxy_ipc.send_event(CustomEvent::EvaluateScript(script.to_string()));
                         }
                         "set_presence" => {
                             if let Some(st) = v.get("state").and_then(|s| s.as_str()) {
@@ -156,6 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         });
+
 
     #[cfg(target_os = "linux")]
     let webview = {

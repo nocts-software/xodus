@@ -125,6 +125,11 @@ impl TokenManager {
             .set(keys::USER_INFO, &serde_json::to_vec(user)?)
     }
 
+    pub fn remove_user(&self) -> Result<(), TokenStoreError> {
+        self.persistent.remove(keys::USER_INFO)
+    }
+
+
     // ---- Ephemeral XSTS-by-relying-party cache --------------------------------
 
     pub fn get_cached_xsts(&self, relying_party: &str) -> Option<XstsResponse> {

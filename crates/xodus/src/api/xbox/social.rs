@@ -3,20 +3,22 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Person {
+    #[serde(default)]
     pub xuid: String,
-    #[serde(rename = "Gamertag", default)]
+    #[serde(alias = "Gamertag", alias = "gamertag", alias = "modernGamertag", default)]
     pub gamertag: String,
-    #[serde(rename = "displayPicRaw", default)]
+    #[serde(alias = "displayPicRaw", alias = "DisplayPicRaw", alias = "displayPic", default)]
     pub display_pic_raw: Option<String>,
-    #[serde(default)]
+    #[serde(alias = "presenceState", alias = "PresenceState", alias = "state", default)]
     pub presence_state: Option<String>,
-    #[serde(default)]
+    #[serde(alias = "presenceText", alias = "PresenceText", alias = "richPresence", default)]
     pub presence_text: Option<String>,
-    #[serde(default)]
+    #[serde(alias = "presenceDetails", alias = "PresenceDetails", default)]
     pub presence_details: Vec<PresenceDetail>,
     #[serde(default)]
     pub title_history: Option<TitleHistory>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +47,13 @@ pub struct PeopleHubResponse {
     pub people: Vec<Person>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SocialPeopleResponse {
+    #[serde(default)]
+    pub people: Vec<Person>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetPresenceRequest {
@@ -68,6 +77,7 @@ impl<'a> SocialClient<'a> {
 
     /// Fetch user's friends list and social presence
     pub async fn get_friends(&self, auth_header: &str) -> reqwest::Result<Vec<Person>> {
+        // Try PeopleHub API first
         let url = format!(
             "{}/users/me/people/social/decoration/detail,presenceDetail,preferredColor",
             self.people_url
@@ -83,11 +93,28 @@ impl<'a> SocialClient<'a> {
 
         if resp.status().is_success() {
             let res: PeopleHubResponse = resp.json().await.unwrap_or_default();
-            Ok(res.people)
-        } else {
-            log::warn!("PeopleHub query failed with status: {}", resp.status());
-            Ok(Vec::new())
+            if !res.people.is_empty() {
+                return Ok(res.people);
+            }
         }
+
+        // Fallback to social.xboxlive.com/users/me/people
+        let social_url = "https://social.xboxlive.com/users/me/people";
+        let resp2 = self
+            .client
+            .get(social_url)
+            .header("Authorization", auth_header)
+            .header("x-xbl-contract-version", "2")
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        if resp2.status().is_success() {
+            let res2: SocialPeopleResponse = resp2.json().await.unwrap_or_default();
+            return Ok(res2.people);
+        }
+
+        Ok(Vec::new())
     }
 
     /// Update user presence state (e.g. Active, Away, Inactive)

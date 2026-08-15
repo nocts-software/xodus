@@ -25,6 +25,7 @@ pub struct ProfileResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct UserProfile {
     pub xuid: String,
     pub gamertag: String,
@@ -32,6 +33,7 @@ pub struct UserProfile {
     pub gamerscore: String,
     pub tier: String,
 }
+
 
 impl UserProfile {
     pub fn from_profile_user(user: &ProfileUser) -> Self {

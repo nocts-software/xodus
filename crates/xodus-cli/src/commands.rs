@@ -9,6 +9,8 @@ pub mod mpsd;
 pub mod run;
 pub mod save;
 pub mod splicense;
+pub mod status;
 pub mod streaming;
+
 
 

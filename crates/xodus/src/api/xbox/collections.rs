@@ -37,6 +37,22 @@ pub struct CollectionsBrowseResponse {
     pub items: Vec<CollectionItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryResponse {
+    #[serde(default)]
+    pub items: Vec<InventoryItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryItem {
+    #[serde(rename = "productId", default)]
+    pub product_id: String,
+    #[serde(rename = "itemType", default)]
+    pub item_type: Option<String>,
+}
+
 /// Query Microsoft Collections API (collections.mp.microsoft.com)
 pub async fn get_user_collections(
     client: &reqwest::Client,
@@ -51,7 +67,8 @@ pub async fn get_user_collections(
         "entitlementFilters": [
             "Game",
             "Durable",
-            "Pass"
+            "Pass",
+            "Consumable"
         ]
     });
 
@@ -65,8 +82,35 @@ pub async fn get_user_collections(
 
     if resp.status().is_success() {
         let res: CollectionsBrowseResponse = resp.json().await.unwrap_or_default();
-        return Ok(res.items);
+        if !res.items.is_empty() {
+            return Ok(res.items);
+        }
     }
+
+    // Fallback to inventory.xboxlive.com
+    let inv_url = "https://inventory.xboxlive.com/users/me/inventory";
+    let inv_resp = client
+        .get(inv_url)
+        .header("Authorization", auth_header)
+        .header("x-xbl-contract-version", "4")
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+
+    if inv_resp.status().is_success() {
+        let inv: InventoryResponse = inv_resp.json().await.unwrap_or_default();
+        let items: Vec<CollectionItem> = inv
+            .items
+            .into_iter()
+            .map(|i| CollectionItem {
+                product_id: i.product_id,
+                sku_id: None,
+                product_type: i.item_type,
+            })
+            .collect();
+        return Ok(items);
+    }
+
     Ok(Vec::new())
 }
 
