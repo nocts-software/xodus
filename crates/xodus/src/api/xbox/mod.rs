@@ -12,8 +12,8 @@ pub mod title;
 pub mod titlestorage;
 pub use auth::{authenticate_xbox_user, get_xsts_auth_header, request_xsts_token};
 pub use collections::{
-    check_user_gamepass_subscription, enrich_products_catalog, get_gamepass_sigl_ids,
-    get_user_collections, CollectionItem, GameCatalogItem,
+    check_user_gamepass_subscription, enrich_products_catalog, get_gamepass_catalog_ids,
+    get_gamepass_sigl_ids, get_user_collections, CollectionItem, GameCatalogItem,
 };
 
 

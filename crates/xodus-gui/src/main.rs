@@ -169,15 +169,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             });
                         }
                         "init" | "sync_licenses" | "get_friends" | "get_profile" => {
-                            log::info!("Checking SQLite database cache and querying Microsoft Account services...");
+                            let is_force_sync = cmd == "sync_licenses" || cmd == "get_friends" || cmd == "get_profile";
+                            log::info!("Checking SQLite database cache (force_sync: {is_force_sync})...");
                             let tokens_clone = tokens_ipc.clone();
                             let proxy_tokio = proxy_ipc.clone();
                             rt.spawn(async move {
                                 let db = xodus::db::Database::open_default().ok();
+                                let mut has_fresh_catalog = false;
+                                let mut has_fresh_profile = false;
 
                                 // 1. Instantly hydrate UI from SQLite DB cache (zero network latency)
                                 if let Some(ref database) = db {
                                     if let Ok(Some(cached_prof)) = database.get_user_profile("me") {
+                                        let now = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs();
+                                        if now <= cached_prof.updated_at + 86400 {
+                                            has_fresh_profile = true;
+                                        }
+
                                         let json_prof = serde_json::json!({
                                             "gamertag": cached_prof.gamertag,
                                             "gamerScore": cached_prof.gamer_score.unwrap_or_else(|| "0".into()),
@@ -207,11 +218,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
+
+                                    if let Ok(cached_products) = database.get_all_catalog_products() {
+                                        if !cached_products.is_empty() {
+                                            if cached_products.len() > 100 {
+                                                has_fresh_catalog = true;
+                                            }
+                                            let cached_items: Vec<_> = cached_products.into_iter().map(|p| {
+                                                serde_json::json!({
+                                                    "id": p.product_id,
+                                                    "productId": p.product_id,
+                                                    "title": p.title,
+                                                    "developer": p.developer,
+                                                    "licenseType": "gamepass",
+                                                    "installed": false,
+                                                    "size": "Standard",
+                                                    "path": format!("/mnt/w11/XboxGames/{}", p.product_id),
+                                                    "cover": p.poster_url.unwrap_or_else(|| "https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg".into()),
+                                                    "cloudSynced": true,
+                                                    "lastPlayed": "Licensed"
+                                                })
+                                            }).collect();
+                                            if let Ok(json_str) = serde_json::to_string(&cached_items) {
+                                                let script = format!("if (window.setLibraryData) window.setLibraryData({json_str});");
+                                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Skip background network requests if cache is already fresh and user didn't force sync
+                                if !is_force_sync && has_fresh_catalog && has_fresh_profile {
+                                    log::info!("SQLite cache is fresh (catalog & profile). Skipping redundant API queries on launch.");
+                                    return;
                                 }
 
                                 // 2. Perform background network sync to update DB
                                 let client = reqwest::Client::new();
                                 if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_clone, "http://xboxlive.com").await {
+                                    let xuid_str = xsts.xuid().map(|s| s.to_string());
                                     let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
                                     let mut current_gamertag = "Player".to_string();
                                     let mut current_pic = None;
@@ -250,7 +295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
-                                    let has_gamepass = xodus::api::xbox::check_user_gamepass_subscription(&client, &auth_header).await;
+                                    let has_gamepass = xodus::api::xbox::check_user_gamepass_subscription(&client, &auth_header, xuid_str.as_deref()).await;
                                     let gp_script = format!("if (window.setGamePassStatus) window.setGamePassStatus({has_gamepass});");
                                     let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(gp_script));
 
@@ -269,16 +314,160 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         });
                                     }
 
-                                    if let Ok(collections) = xodus::api::xbox::get_user_collections(&client, &auth_header).await {
-                                        let product_ids: Vec<String> = collections.into_iter().map(|c| c.product_id).collect();
-                                        if !product_ids.is_empty() {
-                                            let enriched = xodus::api::xbox::enrich_products_catalog(&client, &product_ids).await;
-                                            if !enriched.is_empty() {
-                                                if let Ok(json_str) = serde_json::to_string(&enriched) {
-                                                    let script = format!("if (window.setLibraryData) window.setLibraryData({json_str});");
-                                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                    let mut final_games = Vec::new();
+                                    let mut owned_ids = std::collections::HashSet::new();
+
+                                    // Helper to resolve items from DB first, and only query missing IDs from network
+                                    let resolve_catalog = |ids: &[String], default_license: &str, db_opt: Option<&xodus::db::Database>, client: &reqwest::Client| {
+                                        let mut items = Vec::new();
+                                        let mut missing = Vec::new();
+
+                                        if let Some(database) = db_opt {
+                                            for id in ids {
+                                                if let Ok(Some(cached)) = database.get_catalog_product(id) {
+                                                    items.push(xodus::api::xbox::GameCatalogItem {
+                                                        id: cached.product_id.clone(),
+                                                        product_id: cached.product_id.clone(),
+                                                        title: cached.title,
+                                                        developer: cached.developer,
+                                                        license_type: default_license.to_string(),
+                                                        installed: false,
+                                                        size: "Standard".to_string(),
+                                                        path: format!("/mnt/w11/XboxGames/{}", cached.product_id),
+                                                        cover: cached.poster_url.unwrap_or_else(|| "https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg".into()),
+                                                        cloud_synced: true,
+                                                        last_played: "Licensed".to_string(),
+                                                    });
+                                                } else {
+                                                    missing.push(id.clone());
                                                 }
                                             }
+                                        } else {
+                                            missing.extend(ids.iter().cloned());
+                                        }
+
+                                        (items, missing)
+                                    };
+
+                                    // 1. Fetch User Collections (Owned / Entitled licenses)
+                                    if let Ok(collections) = xodus::api::xbox::get_user_collections(&client, &auth_header, xuid_str.as_deref()).await {
+                                        let product_ids: Vec<String> = collections.into_iter().map(|c| c.product_id).collect();
+                                        if !product_ids.is_empty() {
+                                            for pid in &product_ids {
+                                                owned_ids.insert(pid.clone());
+                                            }
+                                            let (cached_items, missing_ids) = resolve_catalog(&product_ids, "owned", db.as_ref(), &client);
+                                            final_games.extend(cached_items);
+
+                                            if !missing_ids.is_empty() {
+                                                let mut enriched_owned = xodus::api::xbox::enrich_products_catalog(&client, &missing_ids).await;
+                                                if let Some(ref database) = db {
+                                                    let to_cache: Vec<_> = enriched_owned.iter().map(|item| {
+                                                        xodus::db::CachedCatalogProduct {
+                                                            product_id: item.product_id.clone(),
+                                                            title: item.title.clone(),
+                                                            developer: item.developer.clone(),
+                                                            publisher: "".to_string(),
+                                                            description: "".to_string(),
+                                                            poster_url: Some(item.cover.clone()),
+                                                            hero_url: None,
+                                                            package_family_name: None,
+                                                            content_id: None,
+                                                            size_in_bytes: None,
+                                                            raw_json: None,
+                                                            updated_at: 0,
+                                                            ttl: 604800,
+                                                        }
+                                                    }).collect();
+                                                    let _ = database.save_catalog_products_batch(&to_cache);
+                                                }
+                                                for item in &mut enriched_owned {
+                                                    item.license_type = "owned".to_string();
+                                                }
+                                                final_games.extend(enriched_owned);
+                                            }
+                                        }
+                                    }
+
+                                    // 2. Fetch full PC Game Pass Catalog (500+ Game Pass Titles)
+                                    if let Ok(gp_ids) = xodus::api::xbox::get_gamepass_catalog_ids(&client).await {
+                                        let unowned_gp_ids: Vec<String> = gp_ids.into_iter().filter(|id| !owned_ids.contains(id)).collect();
+                                        if !unowned_gp_ids.is_empty() {
+                                            let (cached_items, missing_ids) = resolve_catalog(&unowned_gp_ids, "gamepass", db.as_ref(), &client);
+                                            final_games.extend(cached_items);
+
+                                            if !missing_ids.is_empty() {
+                                                let mut enriched_gp = xodus::api::xbox::enrich_products_catalog(&client, &missing_ids).await;
+                                                if let Some(ref database) = db {
+                                                    let to_cache: Vec<_> = enriched_gp.iter().map(|item| {
+                                                        xodus::db::CachedCatalogProduct {
+                                                            product_id: item.product_id.clone(),
+                                                            title: item.title.clone(),
+                                                            developer: item.developer.clone(),
+                                                            publisher: "".to_string(),
+                                                            description: "".to_string(),
+                                                            poster_url: Some(item.cover.clone()),
+                                                            hero_url: None,
+                                                            package_family_name: None,
+                                                            content_id: None,
+                                                            size_in_bytes: None,
+                                                            raw_json: None,
+                                                            updated_at: 0,
+                                                            ttl: 604800,
+                                                        }
+                                                    }).collect();
+                                                    let _ = database.save_catalog_products_batch(&to_cache);
+                                                }
+                                                for item in &mut enriched_gp {
+                                                    item.license_type = "gamepass".to_string();
+                                                }
+                                                final_games.extend(enriched_gp);
+                                            }
+                                        }
+                                    }
+
+                                    // 3. Mark and integrate installed titles from /mnt/w11/XboxGames
+                                    let default_path = std::path::PathBuf::from("/mnt/w11/XboxGames");
+                                    if let Ok(mut entries) = tokio::fs::read_dir(&default_path).await {
+                                        while let Ok(Some(entry)) = entries.next_entry().await {
+                                            let p = entry.path();
+                                            if p.is_dir() {
+                                                if let Some(folder_name) = p.file_name().and_then(|n| n.to_str()) {
+                                                    let mut matched = false;
+                                                    for game in &mut final_games {
+                                                        if game.title.eq_ignore_ascii_case(folder_name) 
+                                                           || game.product_id.eq_ignore_ascii_case(folder_name)
+                                                           || folder_name.to_lowercase().contains(&game.title.to_lowercase()) {
+                                                            game.installed = true;
+                                                            game.path = p.to_string_lossy().to_string();
+                                                            game.cloud_synced = true;
+                                                            matched = true;
+                                                        }
+                                                    }
+                                                    if !matched {
+                                                        final_games.insert(0, xodus::api::xbox::GameCatalogItem {
+                                                            id: folder_name.to_string(),
+                                                            product_id: folder_name.to_string(),
+                                                            title: folder_name.to_string(),
+                                                            developer: "Local Game Container".to_string(),
+                                                            license_type: "owned".to_string(),
+                                                            installed: true,
+                                                            size: "Installed".to_string(),
+                                                            path: p.to_string_lossy().to_string(),
+                                                            cover: "https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg".to_string(),
+                                                            cloud_synced: true,
+                                                            last_played: "Today".to_string(),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if !final_games.is_empty() {
+                                        if let Ok(json_str) = serde_json::to_string(&final_games) {
+                                            let script = format!("if (window.setLibraryData) window.setLibraryData({json_str});");
+                                            let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
                                         }
                                     }
 
@@ -299,11 +488,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     let script = "if (window.markAllSavesSynced) window.markAllSavesSynced();";
                                     let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script.to_string()));
-
-                                }
-                            });
-                        }
-
+                                    }
+                                });
+                            }
                         "login" => {
                             log::info!("Triggering Microsoft login flow...");
                             let tokens_clone = tokens_ipc.clone();
@@ -339,10 +526,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let _ = proxy_ipc.send_event(CustomEvent::EvaluateScript(script.to_string()));
                         }
                         "set_presence" => {
-                            if let Some(st) = v.get("state").and_then(|s| s.as_str()) {
-                                let st_owned = st.to_string();
+                            if let Some(state_str) = v.get("state").and_then(|s| s.as_str()) {
+                                let st_owned = state_str.to_string();
                                 let tokens_clone = tokens_ipc.clone();
                                 rt.spawn(async move {
+                                    if let Ok(db) = xodus::db::Database::open_default() {
+                                        let _ = db.update_presence_state("me", &st_owned);
+                                    }
                                     let client = reqwest::Client::new();
                                     if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_clone, "http://xboxlive.com").await {
                                         let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
@@ -379,35 +569,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let webview = builder.build(&window)?;
 
     window.set_focus();
-
-    // Trigger initial background sync
-    {
-        let proxy_init = proxy.clone();
-        let tokens_init = tokens_clone.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async move {
-                let client = reqwest::Client::new();
-                if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_init, "http://xboxlive.com").await {
-                    let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
-                    if let Ok(Some(profile)) = xodus::api::xbox::get_user_profile(&client, &auth_header).await {
-                        if let Ok(json_str) = serde_json::to_string(&profile) {
-                            let script = format!("if (window.setUserData) window.setUserData({json_str});");
-                            let _ = proxy_init.send_event(CustomEvent::EvaluateScript(script));
-                        }
-                    }
-                    if let Ok(friends) = xodus::api::xbox::SocialClient::new(&client).get_friends(&auth_header).await {
-                        if !friends.is_empty() {
-                            if let Ok(json_str) = serde_json::to_string(&friends) {
-                                let script = format!("if (window.setFriendsData) window.setFriendsData({json_str});");
-                                let _ = proxy_init.send_event(CustomEvent::EvaluateScript(script));
-                            }
-                        }
-                    }
-                }
-            });
-        });
-    }
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;

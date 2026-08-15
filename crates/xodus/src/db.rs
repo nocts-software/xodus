@@ -223,6 +223,81 @@ impl Database {
         }
     }
 
+    pub fn get_all_catalog_products(&self) -> SqlResult<Vec<CachedCatalogProduct>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT product_id, title, developer, publisher, description, poster_url, hero_url, 
+                    package_family_name, content_id, size_in_bytes, raw_json, updated_at, ttl 
+             FROM catalog_cache ORDER BY title ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let size_bytes: Option<i64> = row.get(9)?;
+            let updated_at: i64 = row.get(11)?;
+            let ttl: i64 = row.get(12)?;
+            Ok(CachedCatalogProduct {
+                product_id: row.get(0)?,
+                title: row.get(1)?,
+                developer: row.get(2)?,
+                publisher: row.get(3)?,
+                description: row.get(4)?,
+                poster_url: row.get(5)?,
+                hero_url: row.get(6)?,
+                package_family_name: row.get(7)?,
+                content_id: row.get(8)?,
+                size_in_bytes: size_bytes.map(|s| s as u64),
+                raw_json: row.get(10)?,
+                updated_at: updated_at as u64,
+                ttl: ttl as u64,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    pub fn get_fresh_catalog_products(&self) -> SqlResult<Vec<CachedCatalogProduct>> {
+        let conn = self.conn.lock().unwrap();
+        let now = Self::now_secs();
+        let mut stmt = conn.prepare(
+            "SELECT product_id, title, developer, publisher, description, poster_url, hero_url, 
+                    package_family_name, content_id, size_in_bytes, raw_json, updated_at, ttl 
+             FROM catalog_cache 
+             WHERE ?1 <= (updated_at + ttl)
+             ORDER BY title ASC",
+        )?;
+
+        let rows = stmt.query_map(params![now], |row| {
+            let size_bytes: Option<i64> = row.get(9)?;
+            let updated_at: i64 = row.get(11)?;
+            let ttl: i64 = row.get(12)?;
+            Ok(CachedCatalogProduct {
+                product_id: row.get(0)?,
+                title: row.get(1)?,
+                developer: row.get(2)?,
+                publisher: row.get(3)?,
+                description: row.get(4)?,
+                poster_url: row.get(5)?,
+                hero_url: row.get(6)?,
+                package_family_name: row.get(7)?,
+                content_id: row.get(8)?,
+                size_in_bytes: size_bytes.map(|s| s as u64),
+                raw_json: row.get(10)?,
+                updated_at: updated_at as u64,
+                ttl: ttl as u64,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
     pub fn save_catalog_product(&self, p: &CachedCatalogProduct) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         let now = Self::now_secs();
@@ -266,6 +341,59 @@ impl Database {
                 ttl
             ],
         )?;
+        Ok(())
+    }
+
+    pub fn save_catalog_products_batch(&self, products: &[CachedCatalogProduct]) -> SqlResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let now = Self::now_secs();
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                INSERT INTO catalog_cache (
+                    product_id, title, developer, publisher, description, poster_url, hero_url,
+                    package_family_name, content_id, size_in_bytes, raw_json, updated_at, ttl
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                ON CONFLICT(product_id) DO UPDATE SET
+                    title = excluded.title,
+                    developer = excluded.developer,
+                    publisher = excluded.publisher,
+                    description = excluded.description,
+                    poster_url = excluded.poster_url,
+                    hero_url = excluded.hero_url,
+                    package_family_name = excluded.package_family_name,
+                    content_id = excluded.content_id,
+                    size_in_bytes = excluded.size_in_bytes,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at,
+                    ttl = excluded.ttl
+                "#,
+            )?;
+
+            for p in products {
+                let size_bytes = p.size_in_bytes.map(|s| s as i64);
+                let updated = if p.updated_at == 0 { now } else { p.updated_at as i64 };
+                let ttl = if p.ttl == 0 { 604800i64 } else { p.ttl as i64 };
+
+                stmt.execute(params![
+                    p.product_id,
+                    p.title,
+                    p.developer,
+                    p.publisher,
+                    p.description,
+                    p.poster_url,
+                    p.hero_url,
+                    p.package_family_name,
+                    p.content_id,
+                    size_bytes,
+                    p.raw_json,
+                    updated,
+                    ttl
+                ])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -390,6 +518,16 @@ impl Database {
                 prof.subscription_tier,
                 updated
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_presence_state(&self, xuid: &str, state: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Self::now_secs();
+        conn.execute(
+            "UPDATE user_profiles SET presence_state = ?1, updated_at = ?2 WHERE xuid = ?3",
+            params![state, now, xuid],
         )?;
         Ok(())
     }

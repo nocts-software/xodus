@@ -345,15 +345,26 @@ function setupCustomDropdowns() {
     updatePresence(value);
     const dot = document.getElementById('presenceDot');
     const text = document.getElementById('presenceCurrentText');
-    text.textContent = value === 'Active' ? 'Online' : (value === 'Away' ? 'Away' : 'Invisible');
-    dot.className = `status-indicator-dot dot-${value === 'Active' ? 'online' : (value === 'Away' ? 'away' : 'invisible')}`;
+    const avatarBadge = document.getElementById('userPresenceBadge');
+
+    if (text) {
+      text.textContent = value === 'Active' ? 'Online' : (value === 'Away' ? 'Away' : 'Invisible');
+    }
+    if (dot) {
+      dot.className = `status-indicator-dot dot-${value === 'Active' ? 'online' : (value === 'Away' ? 'away' : 'invisible')}`;
+    }
+    if (avatarBadge) {
+      avatarBadge.className = `presence-badge ${value === 'Active' ? 'online' : (value === 'Away' ? 'away' : 'offline')}`;
+    }
   });
 
   setupSingleDropdown('protonDropdown', 'protonTrigger', (value) => {
     const text = document.getElementById('protonCurrentText');
-    if (value.includes('cachyos')) text.textContent = 'Proton CachyOS Native (RADV + FSR4)';
-    else if (value.includes('GE')) text.textContent = 'GE-Proton 11-3';
-    else text.textContent = 'System Wine';
+    if (text) {
+      if (value.includes('cachyos')) text.textContent = 'Proton CachyOS Native (RADV + FSR4)';
+      else if (value.includes('GE')) text.textContent = 'GE-Proton 11-3';
+      else text.textContent = 'System Wine';
+    }
   });
 
   document.addEventListener('click', (e) => {
@@ -369,15 +380,19 @@ function setupSingleDropdown(dropdownId, triggerId, onSelect) {
   if (!dropdown || !trigger) return;
 
   trigger.addEventListener('click', (e) => {
+    e.preventDefault();
     e.stopPropagation();
     const isOpen = dropdown.classList.contains('open');
     document.querySelectorAll('.custom-dropdown').forEach(d => d.classList.remove('open'));
-    if (!isOpen) dropdown.classList.add('open');
+    if (!isOpen) {
+      dropdown.classList.add('open');
+    }
   });
 
   const items = dropdown.querySelectorAll('.dropdown-item');
   items.forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
       items.forEach(i => i.classList.remove('selected'));
       item.classList.add('selected');
       const val = item.getAttribute('data-value');
@@ -461,6 +476,10 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabId}`);
   });
+
+  if (tabId === 'friends') renderFriends();
+  else if (tabId === 'saves') renderSaves();
+  else if (tabId === 'library') renderGames();
 }
 
 // User Rendering
@@ -584,6 +603,11 @@ function renderGames() {
     if (state.filter === 'installed') return game.installed;
     if (state.filter === 'gamepass') return game.licenseType === 'gamepass';
     if (state.filter === 'owned') return game.licenseType === 'owned';
+
+    if (state.hasGamePassSubscription === false && state.activeTab === 'library') {
+      return game.installed || game.licenseType === 'owned';
+    }
+
     return true;
   });
 
@@ -606,6 +630,13 @@ function renderGames() {
       badgeText = 'OWNED';
     }
 
+    let actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="installGame('${game.title}', '${game.path}')">Install</button>`;
+    if (game.installed) {
+      actionBtnHtml = `<button class="btn btn-primary btn-sm" style="flex: 1;" onclick="launchGame('${game.title}', '${game.path}')">Play</button>`;
+    } else if (game.licenseType === 'gamepass' && state.hasGamePassSubscription === false) {
+      actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1; opacity: 0.7;" onclick="showToast('Active PC Game Pass subscription required to install this title')">Join Game Pass</button>`;
+    }
+
     card.innerHTML = `
       <div class="game-card-cover">
         <img src="${game.cover}" alt="${game.title}" loading="lazy">
@@ -618,9 +649,7 @@ function renderGames() {
           <span>${game.size}</span>
         </div>
         <div class="game-card-actions">
-          ${game.installed 
-            ? `<button class="btn btn-primary btn-sm" style="flex: 1;" onclick="launchGame('${game.title}', '${game.path}')">Play</button>`
-            : `<button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="installGame('${game.title}', '${game.path}')">Install</button>`}
+          ${actionBtnHtml}
           <button class="btn btn-secondary btn-sm" onclick="syncGameSaves('${game.path}')" title="Sync Saves">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
@@ -632,11 +661,14 @@ function renderGames() {
     grid.appendChild(card);
   });
 
+  const userOwnedInstalledCount = state.games.filter(g => g.installed || g.licenseType === 'owned').length;
   const libraryCountEl = document.getElementById('libraryCount');
-  if (libraryCountEl) libraryCountEl.textContent = state.games.length;
+  if (libraryCountEl) {
+    libraryCountEl.textContent = state.hasGamePassSubscription !== false ? state.games.length : userOwnedInstalledCount;
+  }
   const countText = document.getElementById('gamesCountText');
   if (countText) {
-    countText.textContent = `Showing ${filtered.length} of ${state.games.length} titles`;
+    countText.textContent = `Showing ${filtered.length} of ${state.hasGamePassSubscription !== false ? state.games.length : userOwnedInstalledCount} titles`;
   }
 
   renderSidebarInstalled();
@@ -672,9 +704,9 @@ function renderFriends() {
   const onlineList = document.getElementById('onlineList');
   const offlineList = document.getElementById('offlineList');
 
-  inGameList.innerHTML = '';
-  onlineList.innerHTML = '';
-  offlineList.innerHTML = '';
+  if (inGameList) inGameList.innerHTML = '';
+  if (onlineList) onlineList.innerHTML = '';
+  if (offlineList) offlineList.innerHTML = '';
 
   let inGameCount = 0;
   let onlineCount = 0;
@@ -682,34 +714,55 @@ function renderFriends() {
   state.friends.forEach(f => {
     const card = document.createElement('div');
     card.className = 'friend-card';
+    const st = (f.state || 'offline').toLowerCase();
+    const isIngame = st === 'in-game' || st === 'ingame';
+    const isOnline = st === 'online' || st === 'active' || st === 'away';
+    const badgeClass = isIngame ? 'online' : (isOnline ? (st === 'away' ? 'away' : 'online') : 'offline');
+
     card.innerHTML = `
       <div class="friend-main">
         <div class="friend-avatar">
           <img src="${f.avatar}" alt="${f.gamertag}">
-          <span class="presence-badge ${f.state.toLowerCase() === 'in-game' ? 'online' : f.state.toLowerCase()}"></span>
+          <span class="presence-badge ${badgeClass}"></span>
         </div>
         <div class="friend-details">
           <span class="friend-gamertag">${f.gamertag}</span>
-          <span class="friend-presence ${f.state.toLowerCase() === 'in-game' ? 'in-game' : ''}">${f.richPresence}</span>
+          <span class="friend-presence ${isIngame ? 'in-game' : ''}">${f.richPresence || (isOnline ? 'Online' : 'Offline')}</span>
         </div>
       </div>
       ${f.canJoin ? `<button class="btn btn-primary btn-sm" onclick="joinFriendGame('${f.gamertag}', '${f.gameTitle}')">Join Game</button>` : ''}
     `;
 
-    if (f.state === 'In-Game') {
+    if (isIngame && inGameList) {
       inGameList.appendChild(card);
       inGameCount++;
-    } else if (f.state === 'Online' || f.state === 'Away') {
+    } else if (isOnline && onlineList) {
       onlineList.appendChild(card);
       onlineCount++;
-    } else {
+    } else if (offlineList) {
       offlineList.appendChild(card);
     }
   });
 
-  document.getElementById('inGameCount').textContent = inGameCount;
-  document.getElementById('onlineOnlyCount').textContent = onlineCount;
-  document.getElementById('onlineFriendsCount').textContent = inGameCount + onlineCount;
+  if (inGameList && inGameCount === 0) {
+    inGameList.innerHTML = '<div class="friends-empty-hint">No friends currently playing games</div>';
+  }
+  if (onlineList && onlineCount === 0) {
+    onlineList.innerHTML = '<div class="friends-empty-hint">No friends currently online</div>';
+  }
+  if (offlineList && offlineList.children.length === 0) {
+    offlineList.innerHTML = '<div class="friends-empty-hint">No offline friends found</div>';
+  }
+
+  const inGameCountEl = document.getElementById('inGameCount');
+  if (inGameCountEl) inGameCountEl.textContent = inGameCount;
+  const onlineOnlyEl = document.getElementById('onlineOnlyCount');
+  if (onlineOnlyEl) onlineOnlyEl.textContent = onlineCount;
+  const onlineFriendsEl = document.getElementById('onlineFriendsCount');
+  if (onlineFriendsEl) onlineFriendsEl.textContent = inGameCount + onlineCount;
+  
+  const friendsNavBadge = document.querySelector('.nav-item[data-tab="friends"] .badge');
+  if (friendsNavBadge) friendsNavBadge.textContent = inGameCount + onlineCount;
 }
 
 // Actions & Handlers
@@ -782,12 +835,8 @@ function updatePresence(state) {
 }
 
 function refreshUserLicenses() {
-  showToast('Querying Microsoft Store Entitlements & Collections API...');
+  showToast('Synchronizing Microsoft Collections & Game Pass catalog...');
   sendNativeCommand({ cmd: 'sync_licenses' });
-  setTimeout(() => {
-    showToast('Verified 20 active digital game licenses & Game Pass entitlements!');
-    renderGames();
-  }, 600);
 }
 
 function refreshFriends() {
@@ -849,25 +898,29 @@ function setupIPCBridge() {
   window.setGamePassStatus = (hasSubscription) => {
     state.hasGamePassSubscription = !!hasSubscription;
     console.log('[XODUS] PC Game Pass Active:', state.hasGamePassSubscription);
-    if (!state.hasGamePassSubscription) {
-      // Filter out unowned Game Pass titles if user has no subscription
-      state.games = state.games.filter(g => g.installed || g.licenseType === 'owned');
-      const gpPill = document.querySelector('[data-filter="gamepass"]');
-      if (gpPill) gpPill.style.opacity = '0.4';
-      renderGames();
-    }
+    renderGames();
   };
 
   window.setLibraryData = (gamesList) => {
     if (Array.isArray(gamesList) && gamesList.length > 0) {
-      if (state.hasGamePassSubscription === false) {
-        state.games = gamesList.filter(g => g.installed || g.licenseType === 'owned');
-      } else {
-        state.games = gamesList;
-      }
+      const processed = gamesList.map(g => {
+        if (g.title === 'Brotato' && window.BROTATO_COVER) {
+          g.cover = window.BROTATO_COVER;
+          g.splash = window.BROTATO_SPLASH || window.BROTATO_COVER;
+        } else if (g.title === 'Sea of Thieves' && window.SOT_COVER) {
+          g.cover = window.SOT_COVER;
+          g.splash = window.SOT_SPLASH || window.SOT_COVER;
+        }
+        return g;
+      });
+
+      state.games = processed;
       renderGames();
       renderSaves();
-      updateHeroBanner(state.games[0]);
+      if (state.games.length > 0) {
+        updateHeroBanner(state.games.find(g => g.installed) || state.games[0]);
+      }
+      showToast(`Synchronized ${state.games.length} titles from Microsoft Collections & Game Pass`);
     }
   };
 

@@ -20,6 +20,7 @@ pub async fn run(client: &reqwest::Client, tokens: &TokenManager) -> ExitCode {
             // 3. Query Xbox Live XSTS and Profile
             match xodus::api::xbox::get_or_request_xsts(client, tokens, "http://xboxlive.com").await {
                 Ok(xsts) => {
+                    let xuid_str = xsts.xuid().map(|s| s.to_string());
                     let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
                     println!("• Xbox Live XSTS: Authenticated (XBL3.0)");
 
@@ -43,14 +44,14 @@ pub async fn run(client: &reqwest::Client, tokens: &TokenManager) -> ExitCode {
                             for f in friends {
                                 let state = f.presence_state.as_deref().unwrap_or("Offline");
                                 let text = f.presence_text.as_deref().unwrap_or("Offline");
-                                println!("  - {} [{}]: {}", f.gamertag, state, text);
+                                println!("  - Gamertag: '{}' [{}]: {}", f.gamertag, state, text);
                             }
                         }
                         Err(e) => println!("• Friends query failed: {e}"),
                     }
 
                     // Collections / Entitlements
-                    match xodus::api::xbox::get_user_collections(client, &auth_header).await {
+                    match xodus::api::xbox::get_user_collections(client, &auth_header, xuid_str.as_deref()).await {
                         Ok(items) => {
                             println!("\n=== Microsoft Store Entitlements ({}) ===", items.len());
                             for item in items.iter().take(10) {
