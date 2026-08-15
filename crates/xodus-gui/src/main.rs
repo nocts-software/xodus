@@ -147,14 +147,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         "init" | "sync_licenses" | "get_friends" | "get_profile" => {
-                            log::info!("Querying Microsoft Account digital licenses, profile, and Xbox Live friends...");
+                            log::info!("Checking SQLite database cache and querying Microsoft Account services...");
                             let tokens_clone = tokens_ipc.clone();
                             let proxy_tokio = proxy_ipc.clone();
                             rt.spawn(async move {
+                                let db = xodus::db::Database::open_default().ok();
+
+                                // 1. Instantly hydrate UI from SQLite DB cache (zero network latency)
+                                if let Some(ref database) = db {
+                                    if let Ok(Some(cached_prof)) = database.get_user_profile("me") {
+                                        let json_prof = serde_json::json!({
+                                            "gamertag": cached_prof.gamertag,
+                                            "gamerScore": cached_prof.gamer_score.unwrap_or_else(|| "0".into()),
+                                            "displayPicRaw": cached_prof.display_pic_url.unwrap_or_default(),
+                                            "presence": cached_prof.presence_state.unwrap_or_else(|| "Online".into()),
+                                        });
+                                        let script = format!("if (window.setUserData) window.setUserData({json_prof});");
+                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+
+                                        let gp_script = format!("if (window.setGamePassStatus) window.setGamePassStatus({});", cached_prof.has_gamepass);
+                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(gp_script));
+                                    }
+
+                                    if let Ok(cached_friends) = database.get_friends("me") {
+                                        if !cached_friends.is_empty() {
+                                            let json_friends: Vec<_> = cached_friends.into_iter().map(|f| {
+                                                serde_json::json!({
+                                                    "gamertag": f.gamertag,
+                                                    "displayPicRaw": f.display_pic_url.unwrap_or_default(),
+                                                    "presenceState": f.presence_state,
+                                                    "presenceText": f.presence_title.unwrap_or_default(),
+                                                })
+                                            }).collect();
+                                            if let Ok(json_str) = serde_json::to_string(&json_friends) {
+                                                let script = format!("if (window.setFriendsData) window.setFriendsData({json_str});");
+                                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. Perform background network sync to update DB
                                 let client = reqwest::Client::new();
                                 if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_clone, "http://xboxlive.com").await {
                                     let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
+                                    let mut current_gamertag = "Player".to_string();
+                                    let mut current_pic = None;
+                                    let mut current_score = None;
+
                                     if let Ok(Some(profile)) = xodus::api::xbox::get_user_profile(&client, &auth_header).await {
+                                        current_gamertag = profile.gamertag.clone();
+                                        current_pic = Some(profile.display_pic.clone());
+                                        current_score = Some(profile.gamerscore.clone());
+
                                         if let Ok(json_str) = serde_json::to_string(&profile) {
                                             let script = format!("if (window.setUserData) window.setUserData({json_str});");
                                             let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
@@ -162,6 +207,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     if let Ok(friends) = xodus::api::xbox::SocialClient::new(&client).get_friends(&auth_header).await {
                                         if !friends.is_empty() {
+                                            if let Some(ref database) = db {
+                                                let cached_f: Vec<_> = friends.iter().map(|f| {
+                                                    xodus::db::CachedFriend {
+                                                        xuid: "me".to_string(),
+                                                        friend_xuid: f.gamertag.clone(),
+                                                        gamertag: f.gamertag.clone(),
+                                                        display_pic_url: f.display_pic_raw.clone(),
+                                                        presence_state: f.presence_state.clone().unwrap_or_else(|| "Offline".into()),
+                                                        presence_title: f.presence_text.clone(),
+                                                        updated_at: 0,
+                                                    }
+                                                }).collect();
+                                                let _ = database.save_friends("me", &cached_f);
+                                            }
+
                                             if let Ok(json_str) = serde_json::to_string(&friends) {
                                                 let script = format!("if (window.setFriendsData) window.setFriendsData({json_str});");
                                                 let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
@@ -171,6 +231,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let has_gamepass = xodus::api::xbox::check_user_gamepass_subscription(&client, &auth_header).await;
                                     let gp_script = format!("if (window.setGamePassStatus) window.setGamePassStatus({has_gamepass});");
                                     let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(gp_script));
+
+                                    // Save refreshed profile & gamepass status in SQLite
+                                    if let Some(ref database) = db {
+                                        let _ = database.save_user_profile(&xodus::db::CachedUserProfile {
+                                            xuid: "me".to_string(),
+                                            gamertag: current_gamertag,
+                                            display_pic_url: current_pic,
+                                            gamer_score: current_score,
+                                            presence_state: Some("Online".into()),
+                                            presence_title: None,
+                                            has_gamepass,
+                                            subscription_tier: if has_gamepass { Some("GamePass".into()) } else { None },
+                                            updated_at: 0,
+                                        });
+                                    }
 
                                     if let Ok(collections) = xodus::api::xbox::get_user_collections(&client, &auth_header).await {
                                         let product_ids: Vec<String> = collections.into_iter().map(|c| c.product_id).collect();

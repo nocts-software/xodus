@@ -205,13 +205,47 @@ pub async fn get_user_collections(
 }
 
 /// Query Microsoft Display Catalog to enrich a list of product IDs with official titles, box art, and developer info
+/// Caches all retrieved metadata in SQLite database to prevent redundant HTTP requests.
 pub async fn enrich_products_catalog(
     client: &reqwest::Client,
     product_ids: &[String],
 ) -> Vec<GameCatalogItem> {
+    let db = crate::db::Database::open_default().ok();
     let mut catalog_items = Vec::new();
+    let mut missing_ids = Vec::new();
 
-    for chunk in product_ids.chunks(20) {
+    // 1. Check local SQLite cache first
+    for pid in product_ids {
+        let mut found = false;
+        if let Some(ref database) = db {
+            if let Ok(Some(cached)) = database.get_catalog_product(pid) {
+                catalog_items.push(GameCatalogItem {
+                    id: cached.product_id.clone(),
+                    product_id: cached.product_id.clone(),
+                    title: cached.title,
+                    developer: cached.developer,
+                    license_type: "owned".to_string(),
+                    installed: false,
+                    size: cached.size_in_bytes.map(|s| format!("{:.1} GB", s as f64 / 1_073_741_824.0)).unwrap_or_else(|| "Standard".to_string()),
+                    path: format!("/mnt/w11/XboxGames/{}", cached.product_id),
+                    cover: cached.poster_url.unwrap_or_else(|| "https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg".to_string()),
+                    cloud_synced: true,
+                    last_played: "Licensed".to_string(),
+                });
+                found = true;
+            }
+        }
+        if !found {
+            missing_ids.push(pid.clone());
+        }
+    }
+
+    if missing_ids.is_empty() {
+        return catalog_items;
+    }
+
+    // 2. Fetch missing items from Display Catalog API
+    for chunk in missing_ids.chunks(20) {
         let big_ids = chunk.join(",");
         let url = format!(
             "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds={big_ids}&market=US&languages=en-us"
@@ -253,8 +287,27 @@ pub async fn enrich_products_catalog(
                                 }
                             })
                             .unwrap_or_else(|| {
-                                "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80".to_string()
+                                "https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg".to_string()
                             });
+
+                        // Cache in SQLite database
+                        if let Some(ref database) = db {
+                            let _ = database.save_catalog_product(&crate::db::CachedCatalogProduct {
+                                product_id: prod.product_id.clone(),
+                                title: title.clone(),
+                                developer: developer.clone(),
+                                publisher: prop.publisher_name.clone(),
+                                description: String::new(),
+                                poster_url: Some(poster_url.clone()),
+                                hero_url: None,
+                                package_family_name: None,
+                                content_id: None,
+                                size_in_bytes: None,
+                                raw_json: None,
+                                updated_at: 0,
+                                ttl: 604800,
+                            });
+                        }
 
                         catalog_items.push(GameCatalogItem {
                             id: prod.product_id.clone(),
