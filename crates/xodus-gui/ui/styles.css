@@ -672,8 +672,24 @@ body {
   border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text-secondary);
 }
+
+.game-card-badge.installed {
+  color: #10b981;
+  border-color: hsla(142, 70%, 45%, 0.3);
+}
+
+.game-card-badge.owned {
+  color: #38bdf8;
+  border-color: hsla(199, 89%, 48%, 0.3);
+}
+
+.game-card-badge.gamepass {
+  color: #a855f7;
+  border-color: hsla(271, 91%, 65%, 0.3);
+}
+
 
 .game-card-info {
   padding: 14px;

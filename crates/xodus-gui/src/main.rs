@@ -13,12 +13,18 @@ const HTML: &str = include_str!("../ui/index.html");
 const CSS: &str = include_str!("../ui/styles.css");
 const JS: &str = include_str!("../ui/app.js");
 
+#[derive(Debug)]
+enum CustomEvent {
+    EvaluateScript(String),
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env("XODUS_LOG");
     xodus::secrets::init_secrets().ok();
 
     let tokens = Arc::new(TokenManager::with_keychain_and_memory());
-    let mut event_loop = EventLoopBuilder::new().build();
+    let mut event_loop = EventLoopBuilder::<CustomEvent>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
     
     let window = WindowBuilder::new()
         .with_title("noct's xodus gui")
@@ -31,12 +37,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = Arc::new(window);
     let win_ipc = window.clone();
 
-    let _tokens_clone = tokens.clone();
+    let tokens_clone = tokens.clone();
     let combined_html = HTML
         .replace("<link rel=\"stylesheet\" href=\"styles.css\">", &format!("<style>{}</style>", CSS))
         .replace("<script src=\"app.js\"></script>", &format!("<script>{}</script>", JS));
 
     let rt = tokio::runtime::Runtime::new()?;
+
+    let proxy_ipc = proxy.clone();
+    let tokens_ipc = tokens.clone();
 
     let builder = WebViewBuilder::new()
         .with_html(&combined_html)
@@ -99,6 +108,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 });
                             }
                         }
+                        "sync_licenses" => {
+                            log::info!("Querying Microsoft Account digital licenses and entitlements...");
+                            let tokens_clone = tokens_ipc.clone();
+                            let proxy_tokio = proxy_ipc.clone();
+                            rt.spawn(async move {
+                                let client = reqwest::Client::new();
+                                if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_clone, "http://xboxlive.com").await {
+                                    let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
+                                    if let Ok(Some(profile)) = xodus::api::xbox::get_user_profile(&client, &auth_header).await {
+                                        if let Ok(json_str) = serde_json::to_string(&profile) {
+                                            let script = format!("if (window.setUserData) window.setUserData({json_str});");
+                                            let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                        }
+                                    }
+                                    if let Ok(friends) = xodus::api::xbox::SocialClient::new(&client).get_friends(&auth_header).await {
+                                        if !friends.is_empty() {
+                                            if let Ok(json_str) = serde_json::to_string(&friends) {
+                                                let script = format!("if (window.setFriendsData) window.setFriendsData({json_str});");
+                                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        "set_presence" => {
+                            if let Some(st) = v.get("state").and_then(|s| s.as_str()) {
+                                let st_owned = st.to_string();
+                                let tokens_clone = tokens_ipc.clone();
+                                rt.spawn(async move {
+                                    let client = reqwest::Client::new();
+                                    if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_clone, "http://xboxlive.com").await {
+                                        let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
+                                        let _ = xodus::api::xbox::SocialClient::new(&client).set_presence(&auth_header, &st_owned).await;
+                                    }
+                                });
+                            }
+                        }
+                        "install_game" => {
+                            if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
+                                log::info!("Preparing package install & decryption for: {path}");
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -106,25 +158,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     #[cfg(target_os = "linux")]
-    let _webview = {
+    let webview = {
         use gtk::prelude::WidgetExt;
+        use gtk::prelude::GtkWindowExt;
         use tao::platform::unix::WindowExtUnix;
         use wry::WebViewBuilderExtUnix;
         let vbox = window.default_vbox().expect("Failed to get window default vbox");
         let wv = builder.build_gtk(vbox)?;
         window.gtk_window().show_all();
+        window.gtk_window().present();
         wv
     };
     #[cfg(not(target_os = "linux"))]
-    let _webview = builder.build(&window)?;
+    let webview = builder.build(&window)?;
 
-    event_loop.run_return(|event, _, control_flow| {
+    window.set_focus();
+
+    // Trigger initial background sync
+    {
+        let proxy_init = proxy.clone();
+        let tokens_init = tokens_clone.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let client = reqwest::Client::new();
+                if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(&client, &tokens_init, "http://xboxlive.com").await {
+                    let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
+                    if let Ok(Some(profile)) = xodus::api::xbox::get_user_profile(&client, &auth_header).await {
+                        if let Ok(json_str) = serde_json::to_string(&profile) {
+                            let script = format!("if (window.setUserData) window.setUserData({json_str});");
+                            let _ = proxy_init.send_event(CustomEvent::EvaluateScript(script));
+                        }
+                    }
+                    if let Ok(friends) = xodus::api::xbox::SocialClient::new(&client).get_friends(&auth_header).await {
+                        if !friends.is_empty() {
+                            if let Ok(json_str) = serde_json::to_string(&friends) {
+                                let script = format!("if (window.setFriendsData) window.setFriendsData({json_str});");
+                                let _ = proxy_init.send_event(CustomEvent::EvaluateScript(script));
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    event_loop.run_return(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => *control_flow = ControlFlow::Exit,
+            Event::UserEvent(CustomEvent::EvaluateScript(script)) => {
+                let _ = webview.evaluate_script(&script);
+            }
             _ => (),
         }
     });

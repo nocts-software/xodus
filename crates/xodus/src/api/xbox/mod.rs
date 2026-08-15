@@ -4,14 +4,19 @@ use crate::models::soap;
 use crate::models::xbox::XstsResponse;
 
 pub mod auth;
+pub mod collections;
 pub mod mpsd;
+pub mod profile;
 pub mod social;
 pub mod title;
 pub mod titlestorage;
 pub use auth::{authenticate_xbox_user, get_xsts_auth_header, request_xsts_token};
+pub use collections::{get_gamepass_sigl_ids, get_user_collections, CollectionItem, GameCatalogItem};
 pub use mpsd::{MatchmakingTicketRequest, MatchmakingTicketResponse, MpsdClient, MultiplayerSession, SessionMember, SessionReference};
+pub use profile::{get_user_profile, ProfileResponse, ProfileUser, UserProfile};
 pub use social::{PeopleHubResponse, Person, PresenceDetail, SocialClient};
 pub use titlestorage::{TitleStorageBlobList, TitleStorageBlobMetadata, TitleStorageClient};
+
 
 
 
