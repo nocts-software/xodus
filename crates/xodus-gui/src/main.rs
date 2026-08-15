@@ -22,9 +22,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let window = WindowBuilder::new()
         .with_title("noct's xodus gui")
+        .with_decorations(false)
+        .with_resizable(true)
         .with_inner_size(Size::Logical(LogicalSize::new(1280.0, 800.0)))
         .with_min_inner_size(Size::Logical(LogicalSize::new(960.0, 600.0)))
         .build(&event_loop)?;
+
+    let window = Arc::new(window);
+    let win_ipc = window.clone();
 
     let _tokens_clone = tokens.clone();
     let combined_html = HTML
@@ -41,6 +46,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
                 if let Some(cmd) = v.get("cmd").and_then(|c| c.as_str()) {
                     match cmd {
+                        "drag_window" => {
+                            let _ = win_ipc.drag_window();
+                        }
+                        "minimize" => {
+                            win_ipc.set_minimized(true);
+                        }
+                        "maximize" => {
+                            let is_max = win_ipc.is_maximized();
+                            win_ipc.set_maximized(!is_max);
+                        }
+                        "close" => {
+                            std::process::exit(0);
+                        }
                         "launch_game" => {
                             if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
                                 let path_owned = path.to_string();

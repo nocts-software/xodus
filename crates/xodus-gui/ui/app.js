@@ -84,12 +84,34 @@ const state = {
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
+  setupWindowControls();
   renderUser();
   renderGames();
   renderSaves();
   renderFriends();
   setupIPCBridge();
 });
+
+function setupWindowControls() {
+  const minBtn = document.getElementById('winMinimize');
+  const maxBtn = document.getElementById('winMaximize');
+  const closeBtn = document.getElementById('winClose');
+  const titlebar = document.getElementById('appTitlebar');
+
+  if (minBtn) minBtn.addEventListener('click', () => sendNativeCommand({ cmd: 'minimize' }));
+  if (maxBtn) maxBtn.addEventListener('click', () => sendNativeCommand({ cmd: 'maximize' }));
+  if (closeBtn) closeBtn.addEventListener('click', () => sendNativeCommand({ cmd: 'close' }));
+
+  if (titlebar) {
+    titlebar.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+      if (e.buttons === 1) {
+        sendNativeCommand({ cmd: 'drag_window' });
+      }
+    });
+  }
+}
+
 
 // Navigation Handling
 function setupNavigation() {
