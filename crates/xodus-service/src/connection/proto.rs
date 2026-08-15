@@ -115,7 +115,7 @@ pub async fn handle(
                     raw_relying_party.clone()
                 };
 
-                let detected_tid: Option<u32> = if let Some(idx) = raw_relying_party.find("tid=") {
+                let mut detected_tid: Option<u32> = if let Some(idx) = raw_relying_party.find("tid=") {
                     let after_tid = &raw_relying_party[idx + 4..];
                     let num_str: String = after_tid.chars().take_while(|c| c.is_ascii_digit()).collect();
                     num_str.parse().ok()
@@ -124,6 +124,9 @@ pub async fn handle(
                 };
 
                 let effective_rp = if raw_relying_party.contains("msrareservices.com") || raw_relying_party.contains("athena") {
+                    if detected_tid.is_none() {
+                        detected_tid = Some(1717113201);
+                    }
                     "rp://athena.prod.msrareservices.com/".to_string()
                 } else if raw_relying_party.contains("epicgames.dev") || raw_relying_party.contains("eos.seaofthieves") {
                     "rp://eos.seaofthieves.com/".to_string()

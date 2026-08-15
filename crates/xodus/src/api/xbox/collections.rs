@@ -1015,6 +1015,20 @@ mod tests {
                     let body = r.text().await.unwrap_or_default();
                     println!("Athena with rp://athena.prod.msrareservices.com/ -> Status: {status}\nBody: {body}");
                 }
+
+                let login_url = "https://stamp3-fd.prod.athena.msrareservices.com/ares/login/api/token/client";
+                let login_resp = client.post(login_url)
+                    .header("Authorization", &auth_header)
+                    .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await;
+                if let Ok(r) = login_resp {
+                    let status = r.status();
+                    let body = r.text().await.unwrap_or_default();
+                    println!("Athena Ares Client Login -> Status: {status}\nBody: {body}");
+                }
             }
             Err(e) => println!("  FAILED for rp://athena.prod.msrareservices.com/: {e}"),
         }
