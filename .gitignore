@@ -1,3 +1,9 @@
 /target
 .env
 samples
+build/
+*.AppImage
+*.db
+*.db-shm
+*.db-wal
+*.log
