@@ -224,16 +224,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             if cached_products.len() > 100 {
                                                 has_fresh_catalog = true;
                                             }
-                                            let cached_items: Vec<_> = cached_products.into_iter().map(|p| {
+                                            
+                                            let default_path = std::path::PathBuf::from("/mnt/w11/XboxGames");
+                                            let mut installed_folders = std::collections::HashSet::new();
+                                            if let Ok(mut entries) = tokio::fs::read_dir(&default_path).await {
+                                                while let Ok(Some(entry)) = entries.next_entry().await {
+                                                    if entry.path().is_dir() {
+                                                        if let Some(name) = entry.file_name().to_str() {
+                                                            installed_folders.insert(name.to_lowercase());
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            let cached_items: Vec<_> = cached_products.into_iter().map(|mut p| {
+                                                let mut is_installed = false;
+                                                let mut install_path = format!("/mnt/w11/XboxGames/{}", p.product_id);
+                                                for folder in &installed_folders {
+                                                    if folder == &p.product_id.to_lowercase() || folder == &p.title.to_lowercase() || folder.contains(&p.title.to_lowercase()) {
+                                                        is_installed = true;
+                                                        install_path = format!("/mnt/w11/XboxGames/{}", folder); // simplistic mapping
+                                                        break;
+                                                    }
+                                                }
+                                                
                                                 serde_json::json!({
                                                     "id": p.product_id,
                                                     "productId": p.product_id,
                                                     "title": p.title,
                                                     "developer": p.developer,
                                                     "licenseType": "gamepass",
-                                                    "installed": false,
+                                                    "installed": is_installed,
                                                     "size": "Standard",
-                                                    "path": format!("/mnt/w11/XboxGames/{}", p.product_id),
+                                                    "path": install_path,
                                                     "cover": p.poster_url.unwrap_or_else(|| "https://shared.steamstatic.com/store_item_assets/steam/apps/1817230/library_600x900.jpg".into()),
                                                     "cloudSynced": true,
                                                     "lastPlayed": "Licensed"

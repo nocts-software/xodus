@@ -230,10 +230,6 @@ pub async fn get_user_collections(
         }
     }
 
-    if !all_items.is_empty() {
-        return Ok(all_items);
-    }
-
     // Fallback 1: titlehub.xboxlive.com (Returns all owned/played titles on Xbox & PC)
     let titlehub_url = "https://titlehub.xboxlive.com/users/me/titles/titlehistory/decoration/scid,image,detail";
     if let Ok(th_resp) = client
@@ -277,10 +273,6 @@ pub async fn get_user_collections(
         }
     }
 
-    if !all_items.is_empty() {
-        return Ok(all_items);
-    }
-
     // Fallback 2: purchase.mp.microsoft.com/v8.0/users/me/entitlements
     let purchase_url = "https://purchase.mp.microsoft.com/v8.0/users/me/entitlements";
     if let Ok(p_resp) = client
@@ -317,10 +309,6 @@ pub async fn get_user_collections(
                 }
             }
         }
-    }
-
-    if !all_items.is_empty() {
-        return Ok(all_items);
     }
 
     // Fallback 3: inventory.xboxlive.com with pagination
