@@ -1,0 +1,161 @@
+name: noct's Xodus Release Pipeline
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release version tag (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+      title:
+        description: 'Release title'
+        required: false
+        default: 'noct'\''s xodus v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build & Publish Release (Self-Hosted Runner)
+    runs-on: [self-hosted, linux]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Xodus Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Toolchain & Dependencies
+        run: |
+          echo "=== [1/4] Setting up Build Toolchains ==="
+          export PATH="/opt/rust/cargo/bin:$HOME/.cargo/bin:$PATH"
+          if ! command -v cargo &>/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable
+          fi
+          rustc --version
+          cargo --version
+          protoc --version 2>/dev/null || echo "protoc ready or using vendored parser"
+
+      - name: Build XGameruntime Windows/Wine Runtime Libraries (Optional)
+        run: |
+          echo "=== [2/4] Checking and Building XGameruntime Libraries ==="
+          if [ ! -d "../xgameruntime" ]; then
+            git clone --depth 1 https://github.com/nocts-software/xgameruntime.git ../xgameruntime 2>/dev/null || true
+          fi
+          if [ -d "../xgameruntime" ] && [ -f "../xgameruntime/build-xgameruntime.sh" ]; then
+            (cd ../xgameruntime && ./build-xgameruntime.sh || true)
+          fi
+
+      - name: Build Xodus Workspace Binaries
+        run: |
+          echo "=== [3/4] Compiling Xodus Workspace with Cargo ==="
+          export PATH="/opt/rust/cargo/bin:$HOME/.cargo/bin:$PATH"
+          cargo build --release --workspace
+
+      - name: Package Self-Contained AppImage
+        run: |
+          echo "=== [4/4] Packaging Self-Contained AppImage ==="
+          export PATH="/opt/rust/cargo/bin:$HOME/.cargo/bin:$PATH"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export ARCH=x86_64
+
+          mkdir -p dist/packages
+          APPDIR="dist/AppDir"
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          mkdir -p "$APPDIR/usr/lib"
+          mkdir -p "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+
+          # 1. Copy Compiled Rust Binaries
+          cp target/release/xodus-cli "$APPDIR/usr/bin/xodus-cli"
+          cp target/release/xodus-cli "$APPDIR/usr/bin/xodus"
+          cp target/release/xodus-service "$APPDIR/usr/bin/xodus-service"
+
+          # 2. Copy xgameruntime Wine Libraries if present
+          if [ -f "../xgameruntime/xgameruntime.dll.so" ]; then
+            cp -vf "../xgameruntime/xgameruntime.dll.so" "$APPDIR/usr/lib/"
+          fi
+          if [ -f "../xgameruntime/twinapi.appcore.dll.so" ]; then
+            cp -vf "../xgameruntime/twinapi.appcore.dll.so" "$APPDIR/usr/lib/"
+          fi
+
+          # 3. Create Desktop Integration & Icons
+          cat << 'EOF' > "$APPDIR/xodus.desktop"
+[Desktop Entry]
+Type=Application
+Name=noct's xodus
+Comment=Xbox GDK compatibility runtime and manager for Linux
+Exec=xodus
+Icon=xodus
+Categories=Game;Utility;
+Terminal=true
+EOF
+          cp "$APPDIR/xodus.desktop" "$APPDIR/usr/share/applications/xodus.desktop"
+
+          if [ -f "assets/Icon/Icon512.png" ]; then
+            cp "assets/Icon/Icon512.png" "$APPDIR/xodus.png"
+            cp "assets/Icon/Icon512.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/xodus.png"
+          else
+            touch "$APPDIR/xodus.png"
+          fi
+
+          # 4. Create AppRun Dispatcher
+          cat << 'EOF' > "$APPDIR/AppRun"
+#!/usr/bin/env bash
+HERE="$(dirname "$(readlink -f "${0}")")"
+export PATH="${HERE}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
+export WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"
+
+# If subcommands given or run as service, route appropriately
+if [ "$1" = "service" ] || [ "$1" = "daemon" ]; then
+    shift
+    exec "${HERE}/usr/bin/xodus-service" "$@"
+fi
+
+exec "${HERE}/usr/bin/xodus" "$@"
+EOF
+          chmod +x "$APPDIR/AppRun"
+          chmod +x "$APPDIR/usr/bin"/*
+
+          # 5. Build AppImage
+          appimagetool "$APPDIR" "dist/packages/xodus-linux-x86_64.AppImage"
+
+          echo "AppImage packaging complete:"
+          ls -lh dist/packages/
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Publishing Release to GitHub ==="
+          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || 'v1.0.0' }}"
+          TITLE="${{ github.event.inputs.title || github.event.release.name || format('noct''s xodus {0}', env.TAG_NAME) }}"
+          
+          # Use gh cli if available or upload via curl
+          if command -v gh &>/dev/null && [ -n "$GITHUB_TOKEN" ]; then
+            gh release create "$TAG_NAME" dist/packages/* \
+              --title "$TITLE" \
+              --notes "Automated release of noct's xodus ($TAG_NAME) built with multiplatform self-hosted runner." \
+              --repo "${{ github.repository }}" 2>/dev/null || \
+            gh release upload "$TAG_NAME" dist/packages/* \
+              --clobber \
+              --repo "${{ github.repository }}"
+          fi
+
+      - name: Dispatch Catalog Update to Central Releases Repo
+        if: always()
+        env:
+          PAT: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Dispatching Catalog Update to Central Hub ==="
+          curl -s -X POST \
+            -H "Authorization: Bearer ${PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/nocts-software/releases/dispatches \
+            -d '{"event_type": "update-catalog", "client_payload": {"app": "xodus"}}' || true
