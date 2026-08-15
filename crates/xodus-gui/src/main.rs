@@ -130,9 +130,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
+                                    if let Ok(collections) = xodus::api::xbox::get_user_collections(&client, &auth_header).await {
+                                        let product_ids: Vec<String> = collections.into_iter().map(|c| c.product_id).collect();
+                                        if !product_ids.is_empty() {
+                                            let enriched = xodus::api::xbox::enrich_products_catalog(&client, &product_ids).await;
+                                            if !enriched.is_empty() {
+                                                if let Ok(json_str) = serde_json::to_string(&enriched) {
+                                                    let script = format!("if (window.setLibraryData) window.setLibraryData({json_str});");
+                                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             });
                         }
+
                         "login" => {
                             log::info!("Triggering Microsoft login flow...");
                             let tokens_clone = tokens_ipc.clone();

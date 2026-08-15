@@ -11,7 +11,8 @@ pub mod social;
 pub mod title;
 pub mod titlestorage;
 pub use auth::{authenticate_xbox_user, get_xsts_auth_header, request_xsts_token};
-pub use collections::{get_gamepass_sigl_ids, get_user_collections, CollectionItem, GameCatalogItem};
+pub use collections::{enrich_products_catalog, get_gamepass_sigl_ids, get_user_collections, CollectionItem, GameCatalogItem};
+
 pub use mpsd::{MatchmakingTicketRequest, MatchmakingTicketResponse, MpsdClient, MultiplayerSession, SessionMember, SessionReference};
 pub use profile::{get_user_profile, ProfileResponse, ProfileUser, UserProfile};
 pub use social::{PeopleHubResponse, Person, PresenceDetail, SocialClient};
