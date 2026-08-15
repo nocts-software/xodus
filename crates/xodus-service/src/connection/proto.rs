@@ -142,10 +142,17 @@ pub async fn handle(
                     }
                 };
 
+                let mut signature = String::new();
+                if raw_relying_party.starts_with("http://") || raw_relying_party.starts_with("https://") {
+                    if let Some(sig) = xodus::api::xbox::auth::sign_http_request("GET", &raw_relying_party, &token, &[]) {
+                        signature = sig;
+                    }
+                }
+
                 let resp = XUserGetTokenResponse {
                     status: 0,
                     token,
-                    signature: String::new(),
+                    signature,
                 };
                 (
                     XodusMessageType::XuserGetTokenResponse,

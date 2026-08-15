@@ -110,6 +110,68 @@ pub async fn request_xsts_token_with_claims(
     Ok(xsts)
 }
 
+pub fn sign_request(
+    signer: &xal::RequestSigner,
+    method: &str,
+    path_and_query: &str,
+    auth_header: &str,
+    body: &[u8],
+) -> Option<String> {
+    use p256::ecdsa::SigningKey;
+    use p256::ecdsa::signature::hazmat::PrehashSigner;
+    use base64::Engine;
+
+    let signing_policy_version: i32 = 1;
+    let version_bytes = signing_policy_version.to_be_bytes();
+    let now = chrono::Utc::now();
+    let filetime_val = (now.timestamp() + 11644473600) * 10000000 + (now.timestamp_subsec_nanos() as i64 / 100);
+    let filetime_bytes = filetime_val.to_be_bytes();
+
+    let prehash = xal::RequestSigner::prehash_message_data(
+        &version_bytes,
+        &filetime_bytes,
+        method,
+        path_and_query,
+        auth_header,
+        body,
+        0,
+    );
+
+    let signing_key: SigningKey = signer.keypair.clone().into();
+    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&prehash).ok()?;
+
+    let mut sig_bytes = Vec::new();
+    sig_bytes.extend_from_slice(&version_bytes);
+    sig_bytes.extend_from_slice(&filetime_bytes);
+    sig_bytes.extend_from_slice(&signature.to_bytes());
+    Some(base64::engine::general_purpose::STANDARD.encode(&sig_bytes))
+}
+
+pub fn sign_http_request(method: &str, raw_url: &str, auth_header: &str, body: &[u8]) -> Option<String> {
+    let path_and_query = if let Ok(url) = reqwest::Url::parse(raw_url) {
+        match url.query() {
+            Some(q) => format!("{}?{}", url.path(), q),
+            None => url.path().to_string(),
+        }
+    } else {
+        raw_url.to_string()
+    };
+
+    let auth = xal::XalAuthenticator::new(
+        xal::XalAppParameters {
+            client_id: "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+            title_id: None,
+            auth_scopes: vec![],
+            redirect_uri: None,
+            client_secret: None,
+        },
+        xal::client_params::CLIENT_WINDOWS(),
+        "RETAIL".to_string(),
+    );
+    let signer = auth.request_signer();
+    sign_request(&signer, method, &path_and_query, auth_header, body)
+}
+
 pub fn get_xsts_auth_header(xsts: XstsResponse) -> String {
     let uhs = xsts.user_hash().expect("XSTS response missing xui claim");
     format!("XBL3.0 x={uhs};{}", xsts.token)
