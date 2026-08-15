@@ -15,7 +15,7 @@ on:
       title:
         description: 'Release title'
         required: false
-        default: 'noct'\''s xodus v1.0.0'
+        default: "noct's xodus v1.0.0"
   repository_dispatch:
     types: [release-build, release, trigger-release]
 
@@ -139,8 +139,8 @@ EOF
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Publishing Release to GitHub ==="
-          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || 'v1.0.0' }}"
-          TITLE="${{ github.event.inputs.title || github.event.release.name || format('noct''s xodus {0}', env.TAG_NAME) }}"
+          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || 'v1.0.0' }}"
+          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || 'noct\'s xodus' }}"
           
           # Use gh cli if available or upload via curl
           if command -v gh &>/dev/null && [ -n "$GITHUB_TOKEN" ]; then
