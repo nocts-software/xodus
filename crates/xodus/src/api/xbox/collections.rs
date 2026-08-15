@@ -956,28 +956,15 @@ mod tests {
             display_claims: None,
         };
 
-        let rps = [
+        let xsts_token = auth.get_xsts_token(
+            Some(&dt),
+            Some(&title_tok),
+            Some(&xal_user),
             "http://xboxlive.com",
-            "https://athena.msrareservices.com",
-            "http://athena.msrareservices.com",
-            "https://athena.msrareservices.com/",
-            "rp://athena.msrareservices.com/",
-            "https://discovery.prod.athena.msrareservices.com",
-            "http://discovery.prod.athena.msrareservices.com",
-            "https://prod.athena.msrareservices.com",
-            "http://prod.athena.msrareservices.com",
-            "https://mp.athena.msrareservices.com",
-            "http://mp.athena.msrareservices.com",
-            "https://title.mgt.xboxlive.com",
-            "http://title.mgt.xboxlive.com",
-        ];
+        ).await.unwrap();
 
-        for rp in rps {
-            match auth.get_xsts_token(Some(&dt), Some(&title_tok), Some(&xal_user), rp).await {
-                Ok(tok) => println!("  SUCCESS for RP '{}': token_len={}", rp, tok.token.len()),
-                Err(e) => println!("  FAILED for RP '{}': {}", rp, e),
-            }
-        }
+        let auth_header = xsts_token.authorization_header_value();
+        println!("Full XSTS Auth Header: {}", auth_header);
 
         let signer = auth.request_signer();
         use p256::ecdsa::SigningKey;
@@ -1010,20 +997,26 @@ mod tests {
         sig_bytes.extend_from_slice(&signature.to_bytes());
         let sig_b64 = base64::engine::general_purpose::STANDARD.encode(&sig_bytes);
 
-        for cv in ["1", "2", "3", "100"] {
-            let athena_url = "https://discovery.prod.athena.msrareservices.com/discovery/app/endpoint?tid=1717113201";
-            let resp = client.get(athena_url)
-                .header("Authorization", &auth_header)
-                .header("Signature", &sig_b64)
-                .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
-                .header("x-xbl-contract-version", cv)
-                .send()
-                .await;
-            if let Ok(r) = resp {
-                let status = r.status();
-                let body = r.text().await.unwrap_or_default();
-                println!("Athena (cv={cv}) -> Status: {status}\nBody: {body}\n");
+        println!("\n=== TESTING rp://athena.prod.msrareservices.com/ ===");
+        match auth.get_xsts_token(Some(&dt), Some(&title_tok), Some(&xal_user), "rp://athena.prod.msrareservices.com/").await {
+            Ok(tok) => {
+                println!("  SUCCESS: got XSTS token for rp://athena.prod.msrareservices.com/ (len={})", tok.token.len());
+                let auth_header = tok.authorization_header_value();
+                println!("  Auth Header: {}", auth_header);
+
+                let athena_url = "https://discovery.prod.athena.msrareservices.com/discovery/app/endpoint?tid=1717113201";
+                let resp = client.get(athena_url)
+                    .header("Authorization", &auth_header)
+                    .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
+                    .send()
+                    .await;
+                if let Ok(r) = resp {
+                    let status = r.status();
+                    let body = r.text().await.unwrap_or_default();
+                    println!("Athena with rp://athena.prod.msrareservices.com/ -> Status: {status}\nBody: {body}");
+                }
             }
+            Err(e) => println!("  FAILED for rp://athena.prod.msrareservices.com/: {e}"),
         }
     }
 }

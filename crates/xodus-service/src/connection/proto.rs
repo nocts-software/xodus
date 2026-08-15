@@ -123,19 +123,31 @@ pub async fn handle(
                     std::env::var("XODUS_TITLE_ID").ok().and_then(|s| u32::from_str_radix(&s, 16).ok().or_else(|| s.parse().ok()))
                 };
 
-                let mut token_res = if let Some(tid) = detected_tid {
-                    log::info!("[XODUS-SERVICE] Requesting multi-claim XSTS token for Title ID {tid}...");
-                    xodus::api::xbox::get_or_request_xsts_for_title(&context.client, context.tokens(), tid, "http://xboxlive.com").await
+                let effective_rp = if raw_relying_party.contains("msrareservices.com") || raw_relying_party.contains("athena") {
+                    "rp://athena.prod.msrareservices.com/".to_string()
+                } else if raw_relying_party.contains("epicgames.dev") || raw_relying_party.contains("eos.seaofthieves") {
+                    "rp://eos.seaofthieves.com/".to_string()
+                } else if raw_relying_party.contains("xboxlive.com") {
+                    "http://xboxlive.com".to_string()
                 } else {
-                    xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &sanitized_rp).await
+                    sanitized_rp.clone()
                 };
 
-                if token_res.is_err() && sanitized_rp != raw_relying_party {
-                    log::warn!("[XODUS-SERVICE] Sanitized RP '{sanitized_rp}' failed, retrying with raw RP '{raw_relying_party}'...");
+                log::info!("[XODUS-SERVICE] Resolved effective relying party: '{effective_rp}' (tid={detected_tid:?})");
+
+                let mut token_res = if let Some(tid) = detected_tid {
+                    log::info!("[XODUS-SERVICE] Requesting multi-claim XSTS token for Title ID {tid} on RP '{effective_rp}'...");
+                    xodus::api::xbox::get_or_request_xsts_for_title(&context.client, context.tokens(), tid, &effective_rp).await
+                } else {
+                    xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &effective_rp).await
+                };
+
+                if token_res.is_err() && effective_rp != "http://xboxlive.com" {
+                    log::warn!("[XODUS-SERVICE] Effective RP '{effective_rp}' failed, retrying with raw RP '{raw_relying_party}'...");
                     token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &raw_relying_party).await;
                 }
 
-                if token_res.is_err() && sanitized_rp != "http://xboxlive.com" && raw_relying_party != "http://xboxlive.com" {
+                if token_res.is_err() && effective_rp != "http://xboxlive.com" && raw_relying_party != "http://xboxlive.com" {
                     log::warn!("[XODUS-SERVICE] Specific RP failed, falling back to standard http://xboxlive.com...");
                     token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), "http://xboxlive.com").await;
                 }
@@ -155,12 +167,7 @@ pub async fn handle(
                     }
                 };
 
-                let mut signature = String::new();
-                if raw_relying_party.starts_with("http://") || raw_relying_party.starts_with("https://") {
-                    if let Some(sig) = xodus::api::xbox::auth::sign_http_request("GET", &raw_relying_party, &token, &[]) {
-                        signature = sig;
-                    }
-                }
+                let signature = String::new();
 
                 let resp = XUserGetTokenResponse {
                     status: 0,
