@@ -439,6 +439,21 @@ function setupSearchAndFilters() {
 }
 
 function switchTab(tabId) {
+  if (tabId === 'gamepass') {
+    state.activeTab = 'library';
+    state.filter = 'gamepass';
+    const pills = document.querySelectorAll('#filterPills .pill');
+    pills.forEach(p => p.classList.toggle('active', p.getAttribute('data-filter') === 'gamepass'));
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.toggle('active', el.getAttribute('data-tab') === 'gamepass');
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+      panel.classList.toggle('active', panel.id === 'tab-library');
+    });
+    renderGames();
+    return;
+  }
+
   state.activeTab = tabId;
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.getAttribute('data-tab') === tabId);
@@ -450,10 +465,53 @@ function switchTab(tabId) {
 
 // User Rendering
 function renderUser() {
-  document.getElementById('userGamertag').textContent = state.user.gamertag;
-  document.getElementById('userAvatar').src = state.user.avatar;
+  const nameEl = document.getElementById('userGamertag');
+  if (nameEl) nameEl.textContent = state.user.gamertag;
+  const avatarEl = document.getElementById('userAvatar');
+  if (avatarEl) avatarEl.src = state.user.avatar;
   const badge = document.getElementById('userPresenceBadge');
-  badge.className = `presence-badge ${state.user.presence.toLowerCase()}`;
+  if (badge) badge.className = `presence-badge ${state.user.presence.toLowerCase()}`;
+  const scoreEl = document.getElementById('userScoreText');
+  if (scoreEl) {
+    const scoreVal = parseInt(state.user.gamerscore, 10);
+    scoreEl.textContent = isNaN(scoreVal) ? state.user.gamerscore : scoreVal.toLocaleString();
+  }
+}
+
+function renderSidebarInstalled() {
+  const container = document.getElementById('sidebarInstalledList');
+  const countEl = document.getElementById('sidebarInstalledCount');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const installedGames = state.games.filter(g => g.installed);
+  if (countEl) {
+    countEl.textContent = installedGames.length;
+  }
+
+  installedGames.forEach(game => {
+    const item = document.createElement('div');
+    item.className = 'sidebar-installed-item';
+    item.title = game.title;
+    item.innerHTML = `
+      <img class="sidebar-installed-icon" src="${game.cover}" alt="${game.title}">
+      <span class="sidebar-installed-name">${game.title}</span>
+      <button class="sidebar-installed-play" title="Play ${game.title}">
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+      </button>
+    `;
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.sidebar-installed-play')) {
+        launchGame(game.title, game.path);
+      } else {
+        switchTab('library');
+        updateHeroBanner(game);
+      }
+    });
+    container.appendChild(item);
+  });
 }
 
 function updateHeroBanner(game) {
@@ -512,6 +570,7 @@ function updateHeroBanner(game) {
 // Games Grid Rendering
 function renderGames() {
   const grid = document.getElementById('gamesGrid');
+  if (!grid) return;
   grid.innerHTML = '';
 
   const filtered = state.games.filter(game => {
@@ -573,11 +632,14 @@ function renderGames() {
     grid.appendChild(card);
   });
 
-  document.getElementById('libraryCount').textContent = state.games.length;
+  const libraryCountEl = document.getElementById('libraryCount');
+  if (libraryCountEl) libraryCountEl.textContent = state.games.length;
   const countText = document.getElementById('gamesCountText');
   if (countText) {
     countText.textContent = `Showing ${filtered.length} of ${state.games.length} titles`;
   }
+
+  renderSidebarInstalled();
 }
 
 
