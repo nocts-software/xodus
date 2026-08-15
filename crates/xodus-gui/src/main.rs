@@ -11,6 +11,7 @@ use xodus::tokens::TokenManager;
 
 const HTML: &str = include_str!("../ui/index.html");
 const CSS: &str = include_str!("../ui/styles.css");
+const ASSETS: &str = include_str!("../ui/assets.js");
 const JS: &str = include_str!("../ui/app.js");
 
 #[derive(Debug)]
@@ -40,7 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokens_clone = tokens.clone();
     let combined_html = HTML
         .replace("<link rel=\"stylesheet\" href=\"styles.css\">", &format!("<style>{}</style>", CSS))
-        .replace("<script src=\"app.js\"></script>", &format!("<script>{}</script>", JS));
+        .replace("<script src=\"app.js\"></script>", &format!("<script>{}</script><script>{}</script>", ASSETS, JS));
+
 
     let rt = tokio::runtime::Runtime::new()?;
 
@@ -48,8 +50,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokens_ipc = tokens.clone();
 
     let builder = WebViewBuilder::new()
+        .with_custom_protocol("xodus-file".into(), move |_id, request| {
+            let uri = request.uri().to_string();
+            let mut raw_path = uri
+                .trim_start_matches("xodus-file://")
+                .trim_start_matches("xodus-file:")
+                .replace("%20", " ");
+            while raw_path.starts_with('/') {
+                raw_path.remove(0);
+            }
+            let full_path = format!("/{raw_path}");
+            eprintln!("[xodus-file] Requested: {uri} -> {full_path}");
+            if let Ok(bytes) = std::fs::read(&full_path) {
+                let mime = if full_path.ends_with(".png") {
+                    "image/png"
+                } else if full_path.ends_with(".jpg") || full_path.ends_with(".jpeg") {
+                    "image/jpeg"
+                } else if full_path.ends_with(".svg") {
+                    "image/svg+xml"
+                } else {
+                    "application/octet-stream"
+                };
+                wry::http::Response::builder()
+                    .header("Content-Type", mime)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(bytes.into())
+                    .unwrap()
+            } else {
+                eprintln!("[xodus-file] File not found: {full_path}");
+                wry::http::Response::builder()
+                    .status(404)
+                    .body(Vec::new().into())
+                    .unwrap()
+            }
+        })
         .with_html(&combined_html)
+
         .with_ipc_handler(move |req| {
+
             let body = req.body();
             log::info!("IPC Message: {body}");
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
@@ -130,6 +168,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
+                                    let has_gamepass = xodus::api::xbox::check_user_gamepass_subscription(&client, &auth_header).await;
+                                    let gp_script = format!("if (window.setGamePassStatus) window.setGamePassStatus({has_gamepass});");
+                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(gp_script));
+
                                     if let Ok(collections) = xodus::api::xbox::get_user_collections(&client, &auth_header).await {
                                         let product_ids: Vec<String> = collections.into_iter().map(|c| c.product_id).collect();
                                         if !product_ids.is_empty() {
@@ -142,6 +184,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
+
                                 }
                             });
                         }
@@ -251,7 +294,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    event_loop.run_return(move |event, _, control_flow| {
+    event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::WindowEvent {
@@ -265,5 +308,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    Ok(())
 }

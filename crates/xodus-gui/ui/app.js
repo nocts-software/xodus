@@ -21,7 +21,8 @@ const state = {
       installed: true,
       size: '423.2 MB',
       path: '/mnt/w11/XboxGames/Brotato',
-      cover: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      cover: window.BROTATO_COVER || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      splash: window.BROTATO_SPLASH || window.BROTATO_COVER,
       cloudSynced: true,
       lastPlayed: 'Today'
     },
@@ -96,10 +97,11 @@ const state = {
       title: 'Sea of Thieves',
       developer: 'Rare Ltd / Xbox Game Studios',
       licenseType: 'gamepass',
-      installed: false,
+      installed: true,
       size: '82.1 GB',
-      path: '/mnt/w11/XboxGames/SeaOfThieves',
-      cover: 'https://store-images.s-microsoft.com/image/apps.29206.14554784103656548.069efce3-9249-4074-a169-183b727043f8.03688f8c-edc0-416b-bebb-9d98a01c25f5',
+      path: '/mnt/w11/XboxGames/Sea of Thieves',
+      cover: window.SOT_COVER || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80',
+      splash: window.SOT_SPLASH || window.SOT_COVER,
       cloudSynced: true,
       lastPlayed: '3 weeks ago'
     },
@@ -116,8 +118,8 @@ const state = {
       cloudSynced: true,
       lastPlayed: 'Yesterday'
     },
-
     {
+
       id: '9NZ5W0R3W4F5',
       productId: '9NZ5W0R3W4F5',
       title: 'Lies of P',
@@ -323,6 +325,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderGames();
   renderSaves();
   renderFriends();
+  updateHeroBanner(state.games[0]);
+
 
   const authBtn = document.getElementById('authButton');
   if (authBtn) {
@@ -453,6 +457,59 @@ function renderUser() {
   badge.className = `presence-badge ${state.user.presence.toLowerCase()}`;
 }
 
+function updateHeroBanner(game) {
+  if (!game) return;
+  const bgImg = document.getElementById('heroBgImage');
+  const titleEl = document.getElementById('heroTitle');
+  const descEl = document.getElementById('heroDesc');
+  const badgeEl = document.getElementById('heroBadge');
+  const actionsEl = document.getElementById('heroActions');
+
+  if (titleEl) titleEl.textContent = game.title;
+  if (descEl) descEl.textContent = `${game.developer} • ${game.size} • ${game.installed ? 'Installed Local Container' : 'Cloud Entitled'}`;
+  if (badgeEl) badgeEl.textContent = game.installed ? 'JUST PLAYED • READY TO PLAY' : (game.licenseType === 'gamepass' ? 'INCLUDED WITH GAME PASS' : 'OWNED LICENSE');
+  if (bgImg) {
+    bgImg.src = game.splash || game.cover;
+  }
+
+
+  if (actionsEl) {
+    if (game.installed) {
+      actionsEl.innerHTML = `
+        <button class="btn btn-primary btn-lg" onclick="launchGame('${game.title}', '${game.path}')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <span>Play In-Place</span>
+        </button>
+        <button class="btn btn-secondary btn-lg" onclick="syncGameSaves('${game.path}')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span>Sync Saves</span>
+        </button>
+      `;
+    } else {
+      actionsEl.innerHTML = `
+        <button class="btn btn-primary btn-lg" onclick="installGame('${game.title}', '${game.path}')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Install Game</span>
+        </button>
+        <button class="btn btn-secondary btn-lg" onclick="showToast('Verifying ${game.title} digital license...')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <span>License Details</span>
+        </button>
+      `;
+    }
+  }
+}
+
 // Games Grid Rendering
 function renderGames() {
   const grid = document.getElementById('gamesGrid');
@@ -475,6 +532,11 @@ function renderGames() {
   filtered.forEach(game => {
     const card = document.createElement('div');
     card.className = 'game-card';
+    card.addEventListener('click', (e) => {
+      if (!e.target.closest('button')) {
+        updateHeroBanner(game);
+      }
+    });
     
     let badgeClass = 'gamepass';
     let badgeText = 'GAME PASS';
@@ -518,6 +580,7 @@ function renderGames() {
     countText.textContent = `Showing ${filtered.length} of ${state.games.length} titles`;
   }
 }
+
 
 // Cloud Saves Rendering
 function renderSaves() {
@@ -595,20 +658,37 @@ function launchGame(title, path) {
 }
 
 function installGame(title, path) {
-  showProgress(`Downloading & Decrypting ${title} via MSIXVC...`, 0);
-  sendNativeCommand({ cmd: 'install_game', path: path });
+  const game = state.games.find(g => g.title === title || g.path === path);
+  if (game && game.licenseType === 'gamepass' && state.hasGamePassSubscription === false && !game.installed) {
+    showToast('PC Game Pass subscription required to install this title');
+    return;
+  }
+
+  showToast(`Initiating MSIXVC package download for ${title}...`);
   let progress = 0;
+  showProgress(`Connecting to Microsoft Delivery Optimization...`, 5);
+  sendNativeCommand({ cmd: 'download_game', title: title, path: path });
+
   const interval = setInterval(() => {
-    progress += 8;
-    if (progress > 100) {
+    progress += Math.floor(Math.random() * 12) + 8;
+    if (progress >= 100) {
       clearInterval(interval);
-      hideProgress();
-      showToast(`${title} installed and verified!`);
+      showProgress(`Finished downloading ${title}`, 100, 'Complete');
+      setTimeout(() => {
+        hideProgress();
+        showToast(`${title} installed and verified ready to play!`);
+        if (game) {
+          game.installed = true;
+          renderGames();
+          updateHeroBanner(game);
+        }
+      }, 1000);
     } else {
       showProgress(`Downloading & Decrypting ${title} via MSIXVC...`, progress, `${(28.4 + Math.random() * 8).toFixed(1)} MB/s`);
     }
   }, 250);
 }
+
 
 function syncGameSaves(path) {
   showToast('Synchronizing Xbox Connected Storage saves...');
@@ -705,13 +785,32 @@ function setupIPCBridge() {
     }
   };
 
-  window.setLibraryData = (gamesList) => {
-    if (Array.isArray(gamesList)) {
-      state.games = gamesList;
+  window.setGamePassStatus = (hasSubscription) => {
+    state.hasGamePassSubscription = !!hasSubscription;
+    console.log('[XODUS] PC Game Pass Active:', state.hasGamePassSubscription);
+    if (!state.hasGamePassSubscription) {
+      // Filter out unowned Game Pass titles if user has no subscription
+      state.games = state.games.filter(g => g.installed || g.licenseType === 'owned');
+      const gpPill = document.querySelector('[data-filter="gamepass"]');
+      if (gpPill) gpPill.style.opacity = '0.4';
       renderGames();
-      renderSaves();
     }
   };
+
+  window.setLibraryData = (gamesList) => {
+    if (Array.isArray(gamesList) && gamesList.length > 0) {
+      if (state.hasGamePassSubscription === false) {
+        state.games = gamesList.filter(g => g.installed || g.licenseType === 'owned');
+      } else {
+        state.games = gamesList;
+      }
+      renderGames();
+      renderSaves();
+      updateHeroBanner(state.games[0]);
+    }
+  };
+
+
 
   window.setFriendsData = (friendsList) => {
     if (Array.isArray(friendsList) && friendsList.length > 0) {

@@ -18,4 +18,6 @@ env_logger = "0.11"
 chrono = { workspace = true }
 uuid = "1.24.0"
 gtk = "0.18"
+base64 = { workspace = true }
+
 

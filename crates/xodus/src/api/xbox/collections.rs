@@ -291,3 +291,33 @@ pub async fn get_gamepass_sigl_ids(
     }
     Ok(Vec::new())
 }
+
+/// Check if the user has an active PC Game Pass or Xbox Game Pass Ultimate subscription
+pub async fn check_user_gamepass_subscription(
+    client: &reqwest::Client,
+    auth_header: &str,
+) -> bool {
+    let collections = get_user_collections(client, auth_header).await.unwrap_or_default();
+    
+    // Known Game Pass subscription product IDs
+    let gamepass_product_ids: HashSet<&str> = [
+        "CFQ7TTC0KGQ8", // PC Game Pass
+        "CFQ7TTC0KHS0", // Xbox Game Pass Ultimate
+        "9P1N75Q4K9Q8", // PC Game Pass (Alt)
+        "CFQ7TTC0K6L8", // Xbox Game Pass Core
+    ].into_iter().collect();
+
+    for item in &collections {
+        if gamepass_product_ids.contains(item.product_id.as_str()) {
+            return true;
+        }
+        if let Some(ref ptype) = item.product_type {
+            if ptype.eq_ignore_ascii_case("Pass") || ptype.eq_ignore_ascii_case("Subscription") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
