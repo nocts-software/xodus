@@ -8,6 +8,12 @@
     <a href="https://discord.gg/ZG774FK4tq">
         <img src="https://img.shields.io/discord/1123890623586504714?logo=discord&style=for-the-badge&color=green&label=Discord" alt="Discord" />
     </a>
+    <a href="https://ko-fi.com/noct1">
+        <img src="https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge" alt="Support on Ko-fi" />
+    </a>
+    <a href="https://www.patreon.com/cw/nocatix">
+        <img src="https://img.shields.io/badge/Patreon-FF424D?logo=patreon&logoColor=white&style=for-the-badge" alt="Support on Patreon" />
+    </a>
     <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20SteamDeck-orange?style=for-the-badge" alt="Platform" />
     <img src="https://img.shields.io/badge/License-GPL--3.0-purple?style=for-the-badge" alt="License" />
 </p>
@@ -222,6 +228,23 @@ Contributions are welcome! Please feel free to submit pull requests, report bugs
   - [xodus-gaming/xodus](https://github.com/xodus-gaming/xodus)
   - [xodus-gaming/xgameruntime](https://github.com/xodus-gaming/xgameruntime)
   - [xodus-gaming/xgameruntime-docs](https://github.com/xodus-gaming/xgameruntime-docs)
+
+## 🔒 Strict Anti-Piracy Policy & Legitimate Licensing
+
+**Xodus is strictly an interoperability and compatibility tool for legitimate owners and subscribers.**
+
+- **Genuine Microsoft Account Required**: All catalog queries, package downloads, and cloud save operations authenticate directly against official Microsoft and Xbox Live APIs using your personal Microsoft account.
+- **Server-Side License Verification**: Xodus communicates directly with Microsoft's official Windows License Manager servers (`licensing.mp.microsoft.com`). Decryption keys for encrypted `.msixvc` containers are cryptographically issued by Microsoft only if your authenticated account holds a verified purchase or an active Xbox Game Pass subscription.
+- **No Circumvention / No Warez**: Xodus does not contain any DRM bypasses, offline patches, or key generators. If your account does not hold a valid license for a game, downloads, streaming, extraction, and game execution are strictly rejected by both Microsoft servers and the Xodus client.
+
+---
+
+## 💖 Support the Project
+
+If you enjoy using Xodus and want to support ongoing Linux reverse engineering, Proton GDK development, and updates, consider backing the project:
+
+- ☕ **Ko-fi**: [ko-fi.com/noct1](https://ko-fi.com/noct1)
+- 🧡 **Patreon**: [patreon.com/cw/nocatix](https://www.patreon.com/cw/nocatix)
 
 ---
 
