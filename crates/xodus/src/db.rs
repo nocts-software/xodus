@@ -467,6 +467,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_catalog_cache(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM catalog_products", [])?;
+        Ok(())
+    }
+
     // --- Profile & Game Pass Status Methods ---
     pub fn get_user_profile(&self, xuid: &str) -> SqlResult<Option<CachedUserProfile>> {
         let conn = self.conn.lock().unwrap();
