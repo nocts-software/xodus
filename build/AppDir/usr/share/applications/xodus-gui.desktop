@@ -1,6 +1,7 @@
 [Desktop Entry]
-Name=Xodus Gaming Hub
+Name=noct's xodus gui
 Comment=Xbox & Microsoft Store Game Launcher for Linux
+
 Exec=xodus-gui %U
 Icon=xodus-gui
 Terminal=false

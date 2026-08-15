@@ -19,10 +19,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokens = Arc::new(TokenManager::with_keychain_and_memory());
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Xodus Gaming Hub")
+        .with_title("noct's xodus gui")
         .with_inner_size(LogicalSize::new(1280.0, 800.0))
         .with_min_inner_size(LogicalSize::new(960.0, 600.0))
         .build(&event_loop)?;
+
 
     let _tokens_clone = tokens.clone();
     let combined_html = HTML

@@ -89,9 +89,17 @@ body {
 .brand-name {
   font-size: 1.15rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
   color: var(--text-primary);
+  text-transform: none;
 }
+
+.brand-prefix {
+  color: var(--accent);
+  font-weight: 800;
+  text-transform: lowercase;
+}
+
 
 .brand-badge {
   font-size: 0.65rem;
