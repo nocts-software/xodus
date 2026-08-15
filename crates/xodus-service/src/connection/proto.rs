@@ -115,7 +115,20 @@ pub async fn handle(
                     raw_relying_party.clone()
                 };
 
-                let mut token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &sanitized_rp).await;
+                let detected_tid: Option<u32> = if let Some(idx) = raw_relying_party.find("tid=") {
+                    let after_tid = &raw_relying_party[idx + 4..];
+                    let num_str: String = after_tid.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    num_str.parse().ok()
+                } else {
+                    std::env::var("XODUS_TITLE_ID").ok().and_then(|s| u32::from_str_radix(&s, 16).ok().or_else(|| s.parse().ok()))
+                };
+
+                let mut token_res = if let Some(tid) = detected_tid {
+                    log::info!("[XODUS-SERVICE] Requesting multi-claim XSTS token for Title ID {tid}...");
+                    xodus::api::xbox::get_or_request_xsts_for_title(&context.client, context.tokens(), tid, "http://xboxlive.com").await
+                } else {
+                    xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &sanitized_rp).await
+                };
 
                 if token_res.is_err() && sanitized_rp != raw_relying_party {
                     log::warn!("[XODUS-SERVICE] Sanitized RP '{sanitized_rp}' failed, retrying with raw RP '{raw_relying_party}'...");

@@ -949,18 +949,35 @@ mod tests {
         };
         let Token::Compact(user_token_compact) = user_token_tok else { panic!() };
         let user_xbl = crate::api::xbox::authenticate_xbox_user(&client, user_token_compact).await.unwrap();
+        let xal_user = xal::response::UserToken {
+            issue_instant: chrono::Utc::now(),
+            not_after: chrono::Utc::now() + chrono::Duration::hours(24),
+            token: user_xbl.token.clone(),
+            display_claims: None,
+        };
 
-        let xsts_token = crate::api::xbox::auth::request_xsts_token_with_claims(
-            &client,
-            Some(user_xbl.token),
-            Some(dt.token.clone()),
-            Some(title_tok.token.clone()),
+        let rps = [
             "http://xboxlive.com",
-        ).await.unwrap();
-        println!("XSTS Display Claims: {:?}", xsts_token.display_claims);
-        let uhs = xsts_token.user_hash().unwrap_or_default();
-        let auth_header = format!("XBL3.0 x={};{}", uhs, xsts_token.token);
-        println!("Full XSTS Auth Header length: {}", auth_header.len());
+            "https://athena.msrareservices.com",
+            "http://athena.msrareservices.com",
+            "https://athena.msrareservices.com/",
+            "rp://athena.msrareservices.com/",
+            "https://discovery.prod.athena.msrareservices.com",
+            "http://discovery.prod.athena.msrareservices.com",
+            "https://prod.athena.msrareservices.com",
+            "http://prod.athena.msrareservices.com",
+            "https://mp.athena.msrareservices.com",
+            "http://mp.athena.msrareservices.com",
+            "https://title.mgt.xboxlive.com",
+            "http://title.mgt.xboxlive.com",
+        ];
+
+        for rp in rps {
+            match auth.get_xsts_token(Some(&dt), Some(&title_tok), Some(&xal_user), rp).await {
+                Ok(tok) => println!("  SUCCESS for RP '{}': token_len={}", rp, tok.token.len()),
+                Err(e) => println!("  FAILED for RP '{}': {}", rp, e),
+            }
+        }
 
         let signer = auth.request_signer();
         use p256::ecdsa::SigningKey;
