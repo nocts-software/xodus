@@ -293,6 +293,7 @@ pub async fn run(
     let mut exe = exe;
     let mut package_family_name = None;
     let mut parsed_title_id = None;
+    let mut parsed_store_id = None;
 
     // Parse MicrosoftGame.config if present
     let config_path = if content_dir.join("MicrosoftGame.config").exists() {
@@ -309,6 +310,9 @@ pub async fn run(
             println!("Parsed MicrosoftGame.config: {:?}", info);
             if info.title_id.is_some() {
                 parsed_title_id = info.title_id.clone();
+            }
+            if info.store_id.is_some() {
+                parsed_store_id = info.store_id.clone();
             }
             if exe.is_none() && info.executable.is_some() {
                 exe = info.executable;
@@ -937,6 +941,11 @@ pub async fn run(
     }
     if let Some(tid) = parsed_title_id {
         cmd.env("XODUS_TITLE_ID", tid);
+    }
+    if let Some(ref sid) = parsed_store_id {
+        cmd.env("XODUS_STORE_ID", sid);
+    } else {
+        cmd.env("XODUS_STORE_ID", "9P2N57MC619K");
     }
 
     // Auto-sync cloud saves: Pull latest cloud saves before launch
