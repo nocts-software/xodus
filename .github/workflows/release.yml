@@ -1,4 +1,4 @@
-name: noct's Xodus Release Pipeline
+name: "noct's Xodus Release Pipeline"
 
 on:
   release:
@@ -42,7 +42,7 @@ jobs:
           fi
           rustc --version
           cargo --version
-          protoc --version 2>/dev/null || echo "protoc ready or using vendored parser"
+          protoc --version 2>/dev/null || echo "protoc ready"
 
       - name: Build XGameruntime Windows/Wine Runtime Libraries (Optional)
         run: |
@@ -89,16 +89,7 @@ jobs:
           fi
 
           # 3. Create Desktop Integration & Icons
-          cat << 'EOF' > "$APPDIR/xodus.desktop"
-[Desktop Entry]
-Type=Application
-Name=noct's xodus
-Comment=Xbox GDK compatibility runtime and manager for Linux
-Exec=xodus
-Icon=xodus
-Categories=Game;Utility;
-Terminal=true
-EOF
+          printf "[Desktop Entry]\nType=Application\nName=noct's xodus\nComment=Xbox GDK compatibility runtime and manager for Linux\nExec=xodus\nIcon=xodus\nCategories=Game;Utility;\nTerminal=true\n" > "$APPDIR/xodus.desktop"
           cp "$APPDIR/xodus.desktop" "$APPDIR/usr/share/applications/xodus.desktop"
 
           if [ -f "assets/Icon/Icon512.png" ]; then
@@ -109,22 +100,7 @@ EOF
           fi
 
           # 4. Create AppRun Dispatcher
-          cat << 'EOF' > "$APPDIR/AppRun"
-#!/usr/bin/env bash
-HERE="$(dirname "$(readlink -f "${0}")")"
-export PATH="${HERE}/usr/bin:${PATH}"
-export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
-export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
-export WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"
-
-# If subcommands given or run as service, route appropriately
-if [ "$1" = "service" ] || [ "$1" = "daemon" ]; then
-    shift
-    exec "${HERE}/usr/bin/xodus-service" "$@"
-fi
-
-exec "${HERE}/usr/bin/xodus" "$@"
-EOF
+          printf "#!/usr/bin/env bash\nHERE=\"\$(dirname \"\$(readlink -f \"\${0}\")\")\"\nexport PATH=\"\${HERE}/usr/bin:\${PATH}\"\nexport LD_LIBRARY_PATH=\"\${HERE}/usr/lib:\${LD_LIBRARY_PATH}\"\nexport XODUS_RUNTIME_PATH=\"\${HERE}/usr/lib\"\nexport WINEDLLPATH=\"\${HERE}/usr/lib:\${WINEDLLPATH}\"\n\nif [ \"\$1\" = \"service\" ] || [ \"\$1\" = \"daemon\" ]; then\n    shift\n    exec \"\${HERE}/usr/bin/xodus-service\" \"\$@\"\nfi\n\nexec \"\${HERE}/usr/bin/xodus\" \"\$@\"\n" > "$APPDIR/AppRun"
           chmod +x "$APPDIR/AppRun"
           chmod +x "$APPDIR/usr/bin"/*
 
@@ -140,7 +116,7 @@ EOF
         run: |
           echo "=== Publishing Release to GitHub ==="
           TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || 'v1.0.0' }}"
-          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || 'noct\'s xodus' }}"
+          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || 'noct''s xodus' }}"
           
           # Use gh cli if available or upload via curl
           if command -v gh &>/dev/null && [ -n "$GITHUB_TOKEN" ]; then
