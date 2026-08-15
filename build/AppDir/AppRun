@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+HERE="$(dirname "$(readlink -f "${0}")")"
+export PATH="${HERE}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
+exec "${HERE}/usr/bin/xodus-gui" "$@"

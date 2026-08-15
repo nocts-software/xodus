@@ -6790,6 +6790,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "xodus-gui"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "log",
+ "msixvc",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "tao",
+ "tokio",
+ "uuid",
+ "wry",
+ "xodus",
+ "xodus-service",
+]
+
+[[package]]
 name = "xodus-service"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xodus Gaming Hub</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header / Titlebar -->
+    <header class="titlebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--accent)"/>
+          </svg>
+        </div>
+        <span class="brand-name">XODUS</span>
+        <span class="brand-badge">PROX</span>
+      </div>
+
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Search your games, add-ons, and friends...">
+      </div>
+
+      <div class="header-actions">
+        <div class="network-badge online">
+          <span class="pulse-dot"></span>
+          <span>Xbox Live Connected</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="main-layout">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="user-card" id="userCard">
+          <div class="avatar-wrapper">
+            <img id="userAvatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 24 24' fill='%2310b981'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E" alt="Avatar">
+            <span class="presence-badge online" id="userPresenceBadge"></span>
+          </div>
+          <div class="user-details">
+            <div class="gamertag-row">
+              <span class="gamertag" id="userGamertag">Sign In</span>
+            </div>
+            <select class="presence-select" id="presenceSelect">
+              <option value="Active">Online</option>
+              <option value="Away">Away</option>
+              <option value="Inactive">Invisible</option>
+            </select>
+          </div>
+        </div>
+
+        <nav class="nav-menu">
+          <button class="nav-item active" data-tab="library">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            <span>My Library</span>
+            <span class="badge" id="libraryCount">1</span>
+          </button>
+
+          <button class="nav-item" data-tab="saves">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            <span>Cloud Saves</span>
+            <span class="status-indicator-dot synced"></span>
+          </button>
+
+          <button class="nav-item" data-tab="friends">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span>Friends & Party</span>
+            <span class="badge online" id="onlineFriendsCount">0</span>
+          </button>
+
+          <button class="nav-item" data-tab="settings">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Settings</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="runner-info">
+            <span class="runner-label">Compatibility Runner</span>
+            <span class="runner-name">Proton CachyOS (Native)</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="authButton">Account Options</button>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="content-area">
+        <!-- LIBRARY TAB -->
+        <section class="tab-panel active" id="tab-library">
+          <!-- Featured Hero Banner -->
+          <div class="hero-banner">
+            <div class="hero-content">
+              <span class="hero-badge">JUST PLAYED</span>
+              <h1 class="hero-title">Brotato</h1>
+              <p class="hero-desc">All Pain No Gain Update • Direct3D 12 • SteamGameId 77BB5AFB</p>
+              <div class="hero-actions">
+                <button class="btn btn-primary btn-lg" onclick="launchGame('Brotato', '/mnt/w11/XboxGames/Brotato')">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  <span>Play In-Place</span>
+                </button>
+                <button class="btn btn-secondary btn-lg" onclick="syncGameSaves('/mnt/w11/XboxGames/Brotato')">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                  </svg>
+                  <span>Sync Saves</span>
+                </button>
+              </div>
+            </div>
+            <div class="hero-overlay"></div>
+          </div>
+
+          <!-- Section Controls -->
+          <div class="section-header">
+            <div class="filter-pills">
+              <button class="pill active" data-filter="all">All Games</button>
+              <button class="pill" data-filter="installed">Installed</button>
+              <button class="pill" data-filter="gamepass">Game Pass</button>
+            </div>
+            <div class="view-controls">
+              <span class="results-count" id="gamesCountText">Showing 1 title</span>
+            </div>
+          </div>
+
+          <!-- Games Grid -->
+          <div class="games-grid" id="gamesGrid">
+            <!-- Dynamic game cards injected by app.js -->
+          </div>
+        </section>
+
+        <!-- CLOUD SAVES TAB -->
+        <section class="tab-panel" id="tab-saves">
+          <div class="panel-header">
+            <div>
+              <h2>Xbox Connected Storage</h2>
+              <p class="subtitle">Real-time save game synchronization with titlestorage.xboxlive.com</p>
+            </div>
+            <button class="btn btn-primary" onclick="syncAllSaves()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+              <span>Sync All Saves</span>
+            </button>
+          </div>
+
+          <div class="saves-list" id="savesList">
+            <!-- Dynamic save cards injected by app.js -->
+          </div>
+        </section>
+
+        <!-- FRIENDS TAB -->
+        <section class="tab-panel" id="tab-friends">
+          <div class="panel-header">
+            <div>
+              <h2>Xbox Live Friends & Parties</h2>
+              <p class="subtitle">See what friends are playing, join multiplayer sessions, and chat</p>
+            </div>
+            <div class="friends-actions">
+              <button class="btn btn-secondary" onclick="refreshFriends()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="friends-container">
+            <div class="friends-column">
+              <h3 class="friends-category-title">In-Game (<span id="inGameCount">0</span>)</h3>
+              <div class="friends-list" id="inGameList"></div>
+
+              <h3 class="friends-category-title">Online (<span id="onlineOnlyCount">0</span>)</h3>
+              <div class="friends-list" id="onlineList"></div>
+
+              <h3 class="friends-category-title">Offline</h3>
+              <div class="friends-list" id="offlineList"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SETTINGS TAB -->
+        <section class="tab-panel" id="tab-settings">
+          <div class="panel-header">
+            <div>
+              <h2>Launcher Settings</h2>
+              <p class="subtitle">Configure Proton runners, storage paths, and network parameters</p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <div class="settings-card">
+              <h3>Compatibility Tool</h3>
+              <p>Default Wine / Proton binary used for in-place game execution.</p>
+              <select class="form-select" id="protonSelect">
+                <option value="/usr/share/steam/compatibilitytools.d/proton-cachyos-native/proton" selected>Proton CachyOS Native (RADV + FSR4)</option>
+                <option value="/usr/share/steam/compatibilitytools.d/GE-Proton11-3/proton">GE-Proton 11-3</option>
+                <option value="wine">System Wine</option>
+              </select>
+            </div>
+
+            <div class="settings-card">
+              <h3>Cloud Save Synchronization</h3>
+              <p>Automatic background save push and pull behavior.</p>
+              <label class="toggle-control">
+                <input type="checkbox" id="autoSyncCheckbox" checked>
+                <span class="toggle-slider"></span>
+                <span>Auto-sync on game launch and shutdown</span>
+              </label>
+            </div>
+
+            <div class="settings-card">
+              <h3>Default Game Storage Path</h3>
+              <p>Mounted Windows or custom games storage directory.</p>
+              <input type="text" class="form-input" id="storagePathInput" value="/mnt/w11/XboxGames">
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Active Process / Download Bottom Bar -->
+    <div class="status-bar" id="statusBar" style="display: none;">
+      <div class="status-info">
+        <span class="status-title" id="statusTitle">Extracting package...</span>
+        <span class="status-speed" id="statusSpeed">24.5 MB/s</span>
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar-fill" id="progressBarFill" style="width: 45%;"></div>
+      </div>
+      <span class="status-percent" id="statusPercent">45%</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

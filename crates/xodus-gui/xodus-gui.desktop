@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Xodus Gaming Hub
+Comment=Xbox & Microsoft Store Game Launcher for Linux
+Exec=xodus-gui %U
+Icon=xodus-gui
+Terminal=false
+Type=Application
+Categories=Game;Utility;
+Keywords=xbox;gaming;proton;wine;microsoft;gamepass;
+StartupWMClass=xodus-gui
