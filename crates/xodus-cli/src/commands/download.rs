@@ -17,7 +17,7 @@ pub async fn run(
     market: Option<String>,
     dry_run: bool,
 ) -> ExitCode {
-    let content_id_task = get_content_id(client, product, market).await;
+    let content_id_task = get_content_id(client, product, market.clone()).await;
     let Ok(content_id) = content_id_task else {
         let Err(err) = content_id_task else {
             eprintln!("Unknown Error");
@@ -26,6 +26,20 @@ pub async fn run(
         eprintln!("{}", err);
         return ExitCode::FAILURE;
     };
+
+    // Verify legitimate ownership / active Game Pass entitlement
+    let license_check = crate::license::get_license(
+        client,
+        tokens,
+        content_id.clone(),
+        market.unwrap_or_else(|| "neutral".to_string()),
+    )
+    .await;
+
+    if let Err(err) = license_check {
+        eprintln!("Access Denied: {}", err);
+        return ExitCode::FAILURE;
+    }
 
     let package_result = get_packages(client, tokens, content_id.clone()).await;
     let Ok(package) = package_result else {

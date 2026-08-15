@@ -872,18 +872,40 @@ mod tests {
         
         let xbl_xsts = crate::api::xbox::get_or_request_xsts(&client, &tokens, "http://xboxlive.com").await.unwrap();
         let xuid = xbl_xsts.xuid().map(|x| x.to_string()).unwrap_or_default();
+        let auth_header = format!("XBL3.0 x={};{}", xbl_xsts.user_hash().unwrap_or_default(), xbl_xsts.token);
 
         let db = crate::db::Database::open_default().ok();
-        if let Some(ref d) = db {
-            d.clear_catalog_cache().unwrap();
-            d.clean_invalid_entitlements().unwrap();
+        let owned = get_user_owned_catalog_items(&client, Some(&tokens), &auth_header, None, Some(&xuid), db.as_ref()).await;
+        println!("User has {} owned games:", owned.len());
+        for g in &owned {
+            println!("  Owned: id='{}', title='{}', path='{}'", g.id, g.title, g.path);
         }
 
-        println!("\n=== TESTING XAL GET_DEVICE_TOKEN_RPS ===");
+        println!("\n=== TESTING TITLE MGT ENDPOINTS FOR 1717113201 ===");
+        let mgt_url = "https://title.mgt.xboxlive.com/titles/1717113201/endpoints?type=1";
+        if let Ok(resp) = client.get(mgt_url).send().await {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            println!("Title Mgt (1717113201) -> Status: {status}\nBody: {text}");
+        }
+
+        let mgt_url2 = "https://title.mgt.xboxlive.com/titles/default/endpoints?type=1";
+        if let Ok(resp) = client.get(mgt_url2).send().await {
+            let mgt: crate::models::xbox::TitleMgtResponse = resp.json().await.unwrap_or_else(|_| serde_json::from_str("{}").unwrap());
+            println!("Title Mgt has {} endpoints:", mgt.end_points.len());
+            for ep in &mgt.end_points {
+                if ep.host.contains("rare") || ep.host.contains("athena") || ep.host.contains("discovery") || ep.relying_party.as_deref().map(|r| r.contains("athena") || r.contains("rare")).unwrap_or(false) {
+                    println!("  Found Matching Endpoint: host={}, rp={:?}, token_type={:?}", ep.host, ep.relying_party, ep.token_type);
+                }
+            }
+        }
+
+        let Token::Legacy(dev_token) = tokens.get_device_sts_token().unwrap() else { panic!() };
+        let Token::Legacy(user_token) = tokens.get_user_sts_token().unwrap() else { panic!() };
         let mut auth = xal::XalAuthenticator::new(
             xal::XalAppParameters {
                 client_id: "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
-                title_id: Some("2008767227".to_string()),
+                title_id: Some("1717113201".to_string()),
                 auth_scopes: vec![],
                 redirect_uri: None,
                 client_secret: None,
@@ -892,114 +914,98 @@ mod tests {
             "RETAIL".to_string(),
         );
 
-        let Token::Legacy(device_token_raw) = tokens.get_device_sts_token().unwrap() else { panic!() };
         let device_token_resp = crate::api::live::exchange_device_token(
             &client,
-            device_token_raw.clone(),
+            dev_token.clone(),
             "{28C08266-F973-4AE6-FFE4-409B249F138F}".to_string(),
             "scope=service::user.auth.xboxlive.com::MBI_SSL&api-version=2.0".to_owned(),
             Some(crate::models::soap::PolicyReference::token_broker()),
         ).await.unwrap();
         let Token::Compact(compact_dev) = device_token_resp.into() else { panic!() };
-        
-        let dev_tok_res = auth.get_device_token_rps(compact_dev).await;
-        println!("get_device_token_rps result: {:?}", dev_tok_res.as_ref().map(|t| t.token.len()));
-        if let Ok(ref dt) = dev_tok_res {
-            let title_tok = auth.get_title_token_win(&dt.token, 2008767227).await.unwrap();
-            println!("Title Token obtained! len={}", title_tok.token.len());
+        let dt = auth.get_device_token_rps(compact_dev).await.unwrap();
+        let title_tok = auth.get_title_token_win(&dt.token, 1717113201).await.unwrap();
 
-            let Token::Legacy(user_token_raw) = tokens.get_user_sts_token().unwrap() else { panic!() };
-            let user_token_resp = crate::api::live::exchange_user_token(
-                &client,
-                user_token_raw,
-                "USERNAME".to_string(),
-                device_token_raw.clone(),
-                None,
-                Some("Silent".to_string()),
-                "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
-                &[(
-                    "user.auth.xboxlive.com".to_owned(),
-                    Some(crate::models::soap::PolicyReference::mbi_ssl()),
-                )],
-            ).await.unwrap();
-            let user_token_tok: Token = match user_token_resp {
-                crate::models::live::ExchangeUserTokenOutcome::Issued(
-                    crate::models::soap::BodyContent::RequestSecurityTokenResponseCollection(mut col)
-                ) => {
-                    col.security_tokens.remove(0).into()
-                }
-                crate::models::live::ExchangeUserTokenOutcome::Issued(
-                    crate::models::soap::BodyContent::RequestSecurityTokenResponse(token)
-                ) => {
-                    (*token).into()
-                }
-                other => panic!("Unexpected user_token_resp: {other:?}"),
-            };
-            let Token::Compact(user_token_compact) = user_token_tok else { panic!() };
-            let user_xbl = crate::api::xbox::authenticate_xbox_user(&client, user_token_compact).await.unwrap();
-            println!("User XBL Token obtained! len={}", user_xbl.token.len());
+        let user_token_resp = crate::api::live::exchange_user_token(
+            &client,
+            user_token.clone(),
+            "USERNAME".to_string(),
+            dev_token.clone(),
+            None,
+            Some("Silent".to_string()),
+            "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+            &[(
+                "user.auth.xboxlive.com".to_owned(),
+                Some(crate::models::soap::PolicyReference::mbi_ssl()),
+            )],
+        ).await.unwrap();
+        let user_token_tok: Token = match user_token_resp {
+            crate::models::live::ExchangeUserTokenOutcome::Issued(
+                crate::models::soap::BodyContent::RequestSecurityTokenResponseCollection(mut col)
+            ) => col.security_tokens.remove(0).into(),
+            crate::models::live::ExchangeUserTokenOutcome::Issued(
+                crate::models::soap::BodyContent::RequestSecurityTokenResponse(token)
+            ) => (*token).into(),
+            _ => panic!(),
+        };
+        let Token::Compact(user_token_compact) = user_token_tok else { panic!() };
+        let user_xbl = crate::api::xbox::authenticate_xbox_user(&client, user_token_compact).await.unwrap();
 
-            let xsts_token = crate::api::xbox::auth::request_xsts_token_with_claims(
-                &client,
-                Some(user_xbl.token),
-                Some(dt.token.clone()),
-                Some(title_tok.token.clone()),
-                "http://xboxlive.com",
-            ).await.unwrap();
-            let uhs = xsts_token.user_hash().unwrap_or_default();
-            println!("Full XSTS Token obtained! len={}, uhs={}", xsts_token.token.len(), uhs);
-            let auth_header = format!("XBL3.0 x={};{}", uhs, xsts_token.token);
+        let xsts_token = crate::api::xbox::auth::request_xsts_token_with_claims(
+            &client,
+            Some(user_xbl.token),
+            Some(dt.token.clone()),
+            Some(title_tok.token.clone()),
+            "http://xboxlive.com",
+        ).await.unwrap();
+        println!("XSTS Display Claims: {:?}", xsts_token.display_claims);
+        let uhs = xsts_token.user_hash().unwrap_or_default();
+        let auth_header = format!("XBL3.0 x={};{}", uhs, xsts_token.token);
+        println!("Full XSTS Auth Header length: {}", auth_header.len());
 
-            let signer = auth.request_signer();
-            use p256::ecdsa::SigningKey;
-            use p256::ecdsa::signature::hazmat::PrehashSigner;
-            use p256::elliptic_curve::bigint::Encoding;
+        let signer = auth.request_signer();
+        use p256::ecdsa::SigningKey;
+        use p256::ecdsa::signature::hazmat::PrehashSigner;
+        use base64::Engine;
 
-            let signing_policy_version: i32 = 1;
-            let version_bytes = signing_policy_version.to_be_bytes();
-            let now = chrono::Utc::now();
-            let filetime_val = (now.timestamp() + 11644473600) * 10000000 + (now.timestamp_subsec_nanos() as i64 / 100);
-            let filetime_bytes = filetime_val.to_be_bytes();
-            let path_and_query = "/discovery/app/endpoint?tid=2008767227";
+        let signing_policy_version: i32 = 1;
+        let version_bytes = signing_policy_version.to_be_bytes();
+        let now = chrono::Utc::now();
+        let filetime_val = (now.timestamp() + 11644473600) * 10000000 + (now.timestamp_subsec_nanos() as i64 / 100);
+        let filetime_bytes = filetime_val.to_be_bytes();
+        let path_and_query = "/discovery/app/endpoint?tid=1717113201";
 
-            let prehash = xal::RequestSigner::prehash_message_data(
-                &version_bytes,
-                &filetime_bytes,
-                "GET",
-                path_and_query,
-                &auth_header,
-                &[],
-                0,
-            );
+        let prehash = xal::RequestSigner::prehash_message_data(
+            &version_bytes,
+            &filetime_bytes,
+            "GET",
+            path_and_query,
+            &auth_header,
+            &[],
+            0,
+        );
 
-            let signing_key: SigningKey = signer.keypair.clone().into();
-            let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&prehash).unwrap();
+        let signing_key: SigningKey = signer.keypair.clone().into();
+        let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&prehash).unwrap();
 
-            let mut sig_bytes = Vec::new();
-            sig_bytes.extend_from_slice(&version_bytes);
-            sig_bytes.extend_from_slice(&filetime_bytes);
-            sig_bytes.extend_from_slice(&signature.to_bytes());
-            use base64::Engine;
-            let sig_b64 = base64::engine::general_purpose::STANDARD.encode(&sig_bytes);
-            println!("Computed Signature header: len={}, value={sig_b64}", sig_b64.len());
+        let mut sig_bytes = Vec::new();
+        sig_bytes.extend_from_slice(&version_bytes);
+        sig_bytes.extend_from_slice(&filetime_bytes);
+        sig_bytes.extend_from_slice(&signature.to_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(&sig_bytes);
 
-            let athena_url = "https://discovery.prod.athena.msrareservices.com/discovery/app/endpoint?tid=2008767227";
-            println!("\n=== QUERYING ATHENA DISCOVERY SERVICE WITH AUTH + SIGNATURE ===");
+        for cv in ["1", "2", "3", "100"] {
+            let athena_url = "https://discovery.prod.athena.msrareservices.com/discovery/app/endpoint?tid=1717113201";
             let resp = client.get(athena_url)
                 .header("Authorization", &auth_header)
                 .header("Signature", &sig_b64)
                 .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
-                .header("x-xbl-contract-version", "1")
+                .header("x-xbl-contract-version", cv)
                 .send()
                 .await;
-            match resp {
-                Ok(r) => {
-                    let status = r.status();
-                    let body = r.text().await.unwrap_or_default();
-                    println!("Athena Response Status: {status}");
-                    println!("Athena Response Body:\n{body}");
-                }
-                Err(e) => println!("Athena Request Error: {e}"),
+            if let Ok(r) = resp {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                println!("Athena (cv={cv}) -> Status: {status}\nBody: {body}\n");
             }
         }
     }

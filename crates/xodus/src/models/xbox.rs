@@ -23,29 +23,31 @@ pub struct UserAuthProperties {
 pub struct XstsResponse {
     pub not_after: chrono::DateTime<chrono::Utc>,
     pub token: String,
-    display_claims: DisplayClaims,
+    pub display_claims: DisplayClaims,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct DisplayClaims {
+pub struct DisplayClaims {
     #[serde(default)]
-    xui: Vec<XuiClaim>,
+    pub xui: Vec<XuiClaim>,
     #[serde(default)]
-    xti: Vec<XtiClaim>,
+    pub xti: Vec<XtiClaim>,
+    #[serde(default)]
+    pub xdi: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct XuiClaim {
-    uhs: String,
-    gtg: Option<String>,
-    xid: Option<String>,
-    mgt: Option<String>,
-    agg: Option<String>,
+pub struct XuiClaim {
+    pub uhs: String,
+    pub gtg: Option<String>,
+    pub xid: Option<String>,
+    pub mgt: Option<String>,
+    pub agg: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct XtiClaim {
-    tid: Option<String>,
+pub struct XtiClaim {
+    pub tid: Option<String>,
 }
 
 impl XstsResponse {

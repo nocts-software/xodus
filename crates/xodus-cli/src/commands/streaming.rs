@@ -158,9 +158,15 @@ pub async fn run(
     let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
     if source.starts_with("file://") {
         let fsrc = source.strip_prefix("file://").unwrap_or_default();
-        let composite = CompositeVolumeReader::new(Path::new(fsrc)).await.unwrap();
+        let composite = match CompositeVolumeReader::new(Path::new(fsrc)).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to open local package source: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
         let l = composite.len();
-        run_cli_reader(
+        match run_cli_reader(
             client,
             tokens,
             destination,
@@ -173,7 +179,13 @@ pub async fn run(
             &tx,
             rx,
         )
-        .await;
+        .await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("Operation Failed: {err}");
+                ExitCode::FAILURE
+            }
+        }
     } else {
 
         let vurl = if source.starts_with("http://") || source.starts_with("https://") {
@@ -237,7 +249,7 @@ pub async fn run(
         .expect("ok");
         let l = http_file.len();
 
-        run_cli_reader(
+        match run_cli_reader(
             client,
             tokens,
             destination,
@@ -250,10 +262,14 @@ pub async fn run(
             &tx,
             rx,
         )
-        .await;
+        .await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("Operation Failed: {err}");
+                ExitCode::FAILURE
+            }
+        }
     }
-
-    ExitCode::SUCCESS
 }
 
 async fn run_cli_reader<Reader>(
@@ -268,7 +284,7 @@ async fn run_cli_reader<Reader>(
     url: &str,
     tx: &Sender<ProgressEvent>,
     mut rx: Receiver<ProgressEvent>,
-) -> ()
+) -> Result<(), String>
 where
     Reader: AsyncRead + Unpin,
 {
@@ -341,7 +357,7 @@ async fn run_reader<Reader>(
     l: u64,
     url: &str,
     tx: &Sender<ProgressEvent>,
-) -> ()
+) -> Result<(), String>
 where
     Reader: AsyncRead + Unpin,
 {
@@ -421,19 +437,14 @@ where
     )
     .await;
     if let Err(err) = license {
-        eprintln!("{}", err);
-        return;
+        return Err(format!("Access Denied: {}", err));
     }
     let (key, game_splicense) = license.unwrap();
     if game_splicense.content_keys.len() != 1 {
-        eprintln!(
-            "unexpected number of content keys {}",
-            game_splicense.content_keys.len()
-        );
-        return;
+        return Err(format!("Unexpected number of content keys: {}", game_splicense.content_keys.len()));
     }
     let Some((_, content_key)) = game_splicense.content_keys.into_iter().next() else {
-        return;
+        return Err("No content keys found in SPLicense".to_string());
     };
 
     let full_key = content_key.unpack(&key).expect("failed to unpack");
@@ -455,24 +466,22 @@ where
     let available_free_space = match available_space(out) {
         Ok(space) => space,
         Err(err) => {
-            eprintln!(
-                "failed to determine available space for {}: {}",
+            return Err(format!(
+                "Failed to determine available space for {}: {}",
                 out.display(),
                 err
-            );
-            return;
+            ));
         }
     };
 
     if available_free_space < required_free_space {
-        eprintln!(
-            "not enough free disk space on {}: need {} bytes, have {} bytes (files: {})",
+        return Err(format!(
+            "Not enough free disk space on {}: need {} bytes, have {} bytes (files: {})",
             out.display(),
             required_free_space,
             available_free_space,
             total_size
-        );
-        return;
+        ));
     }
 
     tx.send(ProgressEvent::UpdateRemaining {
@@ -575,5 +584,6 @@ where
     .await;
 
     std::fs::remove_file(&final_path).ok();
-    std::fs::rename(&cache_path, &final_path).expect("ok");
+    std::fs::rename(&cache_path, &final_path).map_err(|e| format!("Failed to move cached container: {e}"))?;
+    Ok(())
 }

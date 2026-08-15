@@ -79,17 +79,17 @@ pub async fn get_license(
         market,
     )
     .await
-    .expect("failed to get license");
+    .map_err(|e| format!("Access Denied: You do not own a valid license or active Game Pass subscription for this title. ({e})"))?;
 
     let game_splicense = SPLicense::parse_base64(&game_license.splicense_block)
-        .expect("could not parse base64 game SPLicense");
+        .map_err(|e| format!("Could not parse game SPLicense: {e}"))?;
 
-    let dev_license = tokens.get_device_license().unwrap();
+    let dev_license = tokens.get_device_license().map_err(|e| format!("Failed to get device license: {e}"))?;
     let device_license = SPLicense::parse_base64(&dev_license.splicense)
-        .expect("could not parse base64 device SPLicense");
+        .map_err(|e| format!("Could not parse device SPLicense: {e}"))?;
     let key = device_license
         .encrypted_device_key
-        .unwrap()
+        .ok_or_else(|| "Missing encrypted device key in license".to_string())?
         .derive_device_key();
     Ok((key, game_splicense))
 }

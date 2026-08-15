@@ -19,7 +19,7 @@ pub async fn get_license_content(
     ticket_reference: String,
     content_id: String,
     market: String,
-) -> reqwest::Result<(LicenseContentResponse, License)> {
+) -> Result<(LicenseContentResponse, License), Box<dyn std::error::Error + Send + Sync>> {
     let cv = CorrelationVector::new();
     let response = client
         .post("https://licensing.mp.microsoft.com/v7.0/licenses/content")
@@ -28,7 +28,7 @@ pub async fn get_license_content(
         .header("user-agent", "XboxLm-PC/Microsoft.GamingServices_32.107.4002.0_x64__8wekyb3d8bbwe")
         .header("MS-CV", cv.to_string())
         .json(&LicenseContentRequest {
-            content_id,
+            content_id: content_id.clone(),
             market,
             client_challenge: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiID8+PENsaWVudENoYWxsZW5nZSB4bWxuczp4c2k9Imh0dHA6Ly93d3cudzMub3JnLzIwMDEvWE1MU2NoZW1hLWluc3RhbmNlIiB4bWxuczp4c2Q9Imh0dHA6Ly93d3cudzMub3JnLzIwMDEvWE1MU2NoZW1hIiB4bWxucz0iaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS9vbmVzdG9yZS9zZWN1cml0eS9ta21zL0xpY1JlcS92MSIgVmVyc2lvbj0iMiI+PExpY2Vuc2VQcm90b2NvbFZlcnNpb24+NTwvTGljZW5zZVByb3RvY29sVmVyc2lvbj48U2lnbmluZ0tleVZlcnNpb24+MTwvU2lnbmluZ0tleVZlcnNpb24+PENsaWVudFZlcnNpb24+MjwvQ2xpZW50VmVyc2lvbj48L0NsaWVudENoYWxsZW5nZT4=".into(),
             concurrency_mode: "Rude".into(),
@@ -48,9 +48,23 @@ pub async fn get_license_content(
         .send()
         .await?;
 
+    let status = response.status();
+    if !status.is_success() {
+        let err_body = response.text().await.unwrap_or_default();
+        return Err(format!("Microsoft Licensing Service denied access ({status}): {err_body}").into());
+    }
+
     let content_res = response.json::<LicenseContentResponse>().await?;
-    let license = &content_res.license.keys[0].value;
-    let license = BASE64_STANDARD.decode(license).unwrap();
-    let license = quick_xml::de::from_str::<License>(&String::from_utf8(license).unwrap()).unwrap();
+    if content_res.license.keys.is_empty() {
+        return Err(format!("No valid license found for content {content_id}. User is not entitled to this game.").into());
+    }
+
+    let license_b64 = &content_res.license.keys[0].value;
+    let decoded_bytes = BASE64_STANDARD.decode(license_b64)
+        .map_err(|e| format!("Failed to decode license base64: {e}"))?;
+    let xml_str = String::from_utf8(decoded_bytes)
+        .map_err(|e| format!("Failed to parse license UTF-8: {e}"))?;
+    let license = quick_xml::de::from_str::<License>(&xml_str)
+        .map_err(|e| format!("Failed to deserialize license XML: {e}"))?;
     Ok((content_res, license))
 }
