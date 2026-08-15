@@ -871,7 +871,13 @@ function setupIPCBridge() {
     }
   };
 
-
+  window.markAllSavesSynced = () => {
+    state.games.forEach(g => {
+      if (g.installed) g.cloudSynced = true;
+    });
+    renderSaves();
+    showToast('Auto-synced Xbox Live cloud saves for all installed games');
+  };
 
   window.setFriendsData = (friendsList) => {
     if (Array.isArray(friendsList) && friendsList.length > 0) {

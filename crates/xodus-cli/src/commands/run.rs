@@ -698,6 +698,10 @@ pub async fn run(
         cmd.env("XODUS_TITLE_ID", tid);
     }
 
+    // Auto-sync cloud saves: Pull latest cloud saves before launch
+    println!("Auto-syncing cloud saves (pull) from Xbox Live before launch...");
+    let _ = crate::commands::save::pull(client, tokens, source.clone()).await;
+
     let mut wn = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -720,6 +724,10 @@ pub async fn run(
             return ExitCode::FAILURE;
         }
     };
+
+    // Auto-sync cloud saves: Push updated local saves to Xbox Live after session
+    println!("Auto-syncing cloud saves (push) to Xbox Live after session exit...");
+    let _ = crate::commands::save::push(client, tokens, source).await;
 
     ExitCode::from(status.code().map(|c| c as u8).unwrap_or(0))
 }

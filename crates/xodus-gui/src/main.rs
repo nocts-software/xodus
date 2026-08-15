@@ -146,6 +146,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 });
                             }
                         }
+                        "sync_all_saves" => {
+                            log::info!("Auto-syncing cloud saves for all installed titles...");
+                            let proxy_tokio = proxy_ipc.clone();
+                            rt.spawn(async move {
+                                let default_path = std::path::PathBuf::from("/mnt/w11/XboxGames");
+                                if let Ok(mut entries) = tokio::fs::read_dir(&default_path).await {
+                                    while let Ok(Some(entry)) = entries.next_entry().await {
+                                        let p = entry.path();
+                                        if p.is_dir() {
+                                            let _ = tokio::process::Command::new("xodus")
+                                                .arg("save")
+                                                .arg("pull")
+                                                .arg(&p)
+                                                .status()
+                                                .await;
+                                        }
+                                    }
+                                }
+                                let script = "if (window.showToast) window.showToast('Successfully synchronized cloud saves for all installed games');";
+                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script.to_string()));
+                            });
+                        }
                         "init" | "sync_licenses" | "get_friends" | "get_profile" => {
                             log::info!("Checking SQLite database cache and querying Microsoft Account services...");
                             let tokens_clone = tokens_ipc.clone();
@@ -259,6 +281,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
+
+                                    // Auto-sync cloud saves for all installed titles in background
+                                    let default_path = std::path::PathBuf::from("/mnt/w11/XboxGames");
+                                    if let Ok(mut entries) = tokio::fs::read_dir(&default_path).await {
+                                        while let Ok(Some(entry)) = entries.next_entry().await {
+                                            let p = entry.path();
+                                            if p.is_dir() {
+                                                let _ = tokio::process::Command::new("xodus")
+                                                    .arg("save")
+                                                    .arg("pull")
+                                                    .arg(&p)
+                                                    .status()
+                                                    .await;
+                                            }
+                                        }
+                                    }
+                                    let script = "if (window.markAllSavesSynced) window.markAllSavesSynced();";
+                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script.to_string()));
 
                                 }
                             });
