@@ -155,7 +155,7 @@ fn scan_installed_game_info(path: &std::path::Path) -> Option<InstalledGameInfo>
         }
     }
 
-    if !has_game_files(path) && detected_store_id.is_none() && detected_pfn.is_none() {
+    if !has_game_files(path) {
         return None;
     }
 
@@ -271,29 +271,42 @@ fn deduplicate_games(games: Vec<xodus::api::xbox::GameCatalogItem>, has_gamepass
 }
 
 fn has_game_files(path: &std::path::Path) -> bool {
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                    let ext_lower = ext.to_lowercase();
-                    if ext_lower == "exe" || ext_lower == "config" || ext_lower == "xml" || ext_lower == "dll" || ext_lower == "jkr" || ext_lower == "lua" || ext_lower == "msixvc" {
-                        if let Ok(meta) = p.metadata() {
-                            if meta.len() > 1024 {
-                                return true;
+    let mut has_executable = false;
+
+    fn check_dir_recursive(dir: &std::path::Path, depth: u32, has_exe: &mut bool) {
+        if depth > 5 || *has_exe { return; }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let file_name = p.file_name().unwrap_or_default().to_string_lossy();
+                // Skip hidden files/directories and temporary download archives
+                if file_name.starts_with('.') || file_name.starts_with('$') || file_name.ends_with(".tmp") || file_name.ends_with(".msixvc") {
+                    continue;
+                }
+                if p.is_file() {
+                    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                        let ext_lower = ext.to_lowercase();
+                        if ext_lower == "exe" {
+                            if let Ok(meta) = p.metadata() {
+                                if meta.len() > 10240 { // Real executable > 10KB
+                                    *has_exe = true;
+                                    return;
+                                }
                             }
                         }
                     }
-                }
-            } else if p.is_dir() {
-                let name = p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                if (name == "content" || name == "assets" || name == "binaries" || name == "athena" || name == "shaders") && has_game_files(&p) {
-                    return true;
+                } else if p.is_dir() {
+                    let dir_lower = file_name.to_lowercase();
+                    if dir_lower != "gamesave" && dir_lower != "wgs" && !dir_lower.starts_with('.') {
+                        check_dir_recursive(&p, depth + 1, has_exe);
+                    }
                 }
             }
         }
     }
-    false
+
+    check_dir_recursive(path, 0, &mut has_executable);
+    has_executable
 }
 
 fn find_xodus_cli() -> std::path::PathBuf {
