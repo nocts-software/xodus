@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use tao::{
-    dpi::{LogicalSize, Size},
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Position, Size},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
-    platform::run_return::EventLoopExtRunReturn,
     window::WindowBuilder,
 };
 use wry::WebViewBuilder;
@@ -325,6 +325,79 @@ fn find_xodus_cli() -> std::path::PathBuf {
     std::path::PathBuf::from("xodus")
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WindowState {
+    x: Option<i32>,
+    y: Option<i32>,
+    width: u32,
+    height: u32,
+    is_maximized: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            x: None,
+            y: None,
+            width: 1280,
+            height: 800,
+            is_maximized: false,
+        }
+    }
+}
+
+fn get_window_state_path() -> std::path::PathBuf {
+    let base_dir = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|s| !s.is_empty())
+                .map(|h| std::path::PathBuf::from(h).join(".config"))
+        })
+        .unwrap_or_else(std::env::temp_dir);
+
+    base_dir.join("xodus").join("window_state.json")
+}
+
+fn load_window_state() -> WindowState {
+    let path = get_window_state_path();
+    if let Ok(data) = std::fs::read_to_string(&path) {
+        if let Ok(state) = serde_json::from_str::<WindowState>(&data) {
+            return state;
+        }
+    }
+    WindowState::default()
+}
+
+fn save_window_state(state: &WindowState) {
+    let path = get_window_state_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+fn record_window_state(window: &tao::window::Window, state_lock: &Arc<Mutex<WindowState>>) {
+    let is_max = window.is_maximized();
+    let mut st = state_lock.lock().unwrap();
+    st.is_maximized = is_max;
+    if !is_max {
+        if let Ok(pos) = window.outer_position() {
+            st.x = Some(pos.x);
+            st.y = Some(pos.y);
+        }
+        let size = window.inner_size();
+        if size.width >= 600 && size.height >= 400 {
+            st.width = size.width;
+            st.height = size.height;
+        }
+    }
+    save_window_state(&st);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env("XODUS_LOG");
     xodus::secrets::init_secrets().ok();
@@ -332,14 +405,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokens = Arc::new(TokenManager::with_keychain_and_memory());
     let mut event_loop = EventLoopBuilder::<CustomEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
-    
-    let window = WindowBuilder::new()
+
+    let saved_state = load_window_state();
+    let win_state = Arc::new(Mutex::new(saved_state.clone()));
+    let win_state_ipc = win_state.clone();
+    let win_state_loop = win_state.clone();
+
+    let mut window_builder = WindowBuilder::new()
         .with_title("noct's xodus gui")
         .with_decorations(false)
         .with_resizable(true)
-        .with_inner_size(Size::Logical(LogicalSize::new(1280.0, 800.0)))
         .with_min_inner_size(Size::Logical(LogicalSize::new(960.0, 600.0)))
-        .build(&event_loop)?;
+        .with_inner_size(Size::Physical(PhysicalSize::new(
+            saved_state.width.max(960),
+            saved_state.height.max(600),
+        )));
+
+    if let (Some(x), Some(y)) = (saved_state.x, saved_state.y) {
+        window_builder = window_builder.with_position(Position::Physical(PhysicalPosition::new(x, y)));
+    }
+
+    if saved_state.is_maximized {
+        window_builder = window_builder.with_maximized(true);
+    }
+
+    let window = window_builder.build(&event_loop)?;
 
     let window = Arc::new(window);
     let win_ipc = window.clone();
@@ -408,8 +498,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "maximize" => {
                             let is_max = win_ipc.is_maximized();
                             win_ipc.set_maximized(!is_max);
+                            record_window_state(&win_ipc, &win_state_ipc);
                         }
                         "close" => {
+                            record_window_state(&win_ipc, &win_state_ipc);
                             std::process::exit(0);
                         }
                         "launch_game" => {
@@ -1164,8 +1256,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         use wry::WebViewBuilderExtUnix;
         let vbox = window.default_vbox().expect("Failed to get window default vbox");
         let wv = builder.build_gtk(vbox)?;
-        window.gtk_window().show_all();
-        window.gtk_window().present();
+        let gtk_win = window.gtk_window();
+        if let (Some(x), Some(y)) = (saved_state.x, saved_state.y) {
+            gtk_win.move_(x, y);
+        }
+        if saved_state.is_maximized {
+            gtk_win.maximize();
+        } else {
+            gtk_win.resize(saved_state.width.max(960) as i32, saved_state.height.max(600) as i32);
+        }
+        gtk_win.show_all();
+        gtk_win.present();
         wv
     };
     #[cfg(not(target_os = "linux"))]
@@ -1179,7 +1280,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => *control_flow = ControlFlow::Exit,
+            } => {
+                record_window_state(&window, &win_state_loop);
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Moved(pos),
+                ..
+            } => {
+                if !window.is_maximized() {
+                    let mut st = win_state_loop.lock().unwrap();
+                    st.x = Some(pos.x);
+                    st.y = Some(pos.y);
+                    save_window_state(&st);
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } => {
+                let is_max = window.is_maximized();
+                let mut st = win_state_loop.lock().unwrap();
+                st.is_maximized = is_max;
+                if !is_max && size.width >= 600 && size.height >= 400 {
+                    st.width = size.width;
+                    st.height = size.height;
+                }
+                save_window_state(&st);
+            }
             Event::UserEvent(CustomEvent::EvaluateScript(script)) => {
                 let _ = webview.evaluate_script(&script);
             }
