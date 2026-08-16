@@ -29,7 +29,6 @@ document.addEventListener('DOMContentLoaded', () => {
   renderUser();
   updateGamePassVisibility();
   renderGames();
-  renderSaves();
   renderFriends();
   updateHeroBanner(state.games[0]);
 
@@ -447,6 +446,7 @@ function renderGames() {
 // Cloud Saves Rendering
 function renderSaves() {
   const container = document.getElementById('savesList');
+  if (!container) return;
   container.innerHTML = '';
 
   state.games.forEach(game => {

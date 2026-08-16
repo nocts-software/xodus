@@ -545,19 +545,62 @@ pub async fn run(
             let should_extract = !dest_exe.exists() || std::fs::metadata(&dest_exe).map(|m| m.len() == 0).unwrap_or(true);
             if should_extract {
                 println!("Decrypting executable segment {}: length={}", rel_path, sfile.length);
-                if let Ok(mut out_f) = File::create(&dest_exe).await {
-                    let full_src = content_dir.join(&rel_path);
-                    if full_src.exists() {
-                        if let Ok(mut src_f) = File::open(&full_src).await {
-                            let _ = xvd.mount_mem_fd(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await;
+                match File::create(&dest_exe).await {
+                    Ok(mut out_f) => {
+                        let mut resolved_src = None;
+                        let mut current = content_dir.clone();
+                        let parts: Vec<&str> = rel_path.split('/').collect();
+                        let mut found_all = true;
+                        for part in parts {
+                            let mut found_part = false;
+                            if let Ok(entries) = std::fs::read_dir(&current) {
+                                for entry in entries.flatten() {
+                                    if entry.file_name().to_string_lossy().to_lowercase() == part.to_lowercase() {
+                                        current = current.join(entry.file_name());
+                                        found_part = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !found_part {
+                                found_all = false;
+                                break;
+                            }
                         }
-                    } else {
-                        if let Ok(mut src_f) = File::open(&final_path).await {
-                            let _ = xvd.extract_file(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await;
+                        if found_all {
+                            resolved_src = Some(current.clone());
+                            println!("Resolved path: {:?}", current);
+                        } else {
+                            println!("Failed to resolve path for: {}", rel_path);
                         }
+                        
+                        if let Some(full_src) = resolved_src {
+                            println!("Opening full_src: {:?}", full_src);
+                            match File::open(&full_src).await {
+                                Ok(mut src_f) => {
+                                    println!("Successfully opened full_src");
+                                    if let Err(e) = xvd.mount_mem_fd(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
+                                        println!("Extract error: {}", e);
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("Failed to open full_src: {}", e);
+                                }
+                            }
+                        } else {
+                            println!("Opening final_path fallback");
+                            if let Ok(mut src_f) = File::open(&final_path).await {
+                                if let Err(e) = xvd.extract_file(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
+                                    println!("Extract error: {}", e);
+                                }
+                            }
+                        }
+                        use tokio::io::AsyncWriteExt;
+                        out_f.flush().await.ok();
                     }
-                    use tokio::io::AsyncWriteExt;
-                    out_f.flush().await.ok();
+                    Err(e) => {
+                        println!("Failed to create dest_exe {:?}: {}", dest_exe, e);
+                    }
                 }
             }
             decrypted_exes.push((rel_path, dest_exe));
@@ -656,10 +699,7 @@ pub async fn run(
         #[cfg(unix)]
         let _ = std::os::unix::fs::symlink(&content_dir, &xdrive);
     }
-    let _game_drive_letter = 'X';
-
-    // EAC Settings.json: always keep original relative path (Athena\Binaries\WinGDK\SotGame.exe).
-    // EAC bootstrapper resolves this path relative to its working directory (run_dir).
+    let _game_drive_letter = 'X';    // Patch EasyAntiCheat/Settings.json to use pure Windows paths (fixes EAC Launch Error)
     let eac_dir = run_dir.join("EasyAntiCheat");
     let content_eac_dir = content_dir.join("EasyAntiCheat");
     if content_eac_dir.exists() {
@@ -672,21 +712,77 @@ pub async fn run(
                 let p = entry.path();
                 let file_name = p.file_name().unwrap();
                 let dest = eac_dir.join(file_name);
-                if file_name.to_string_lossy().to_lowercase() == "settings.json" {
-                    if let Ok(content) = std::fs::read_to_string(&p) {
-                        let modified_content = content.replace("\"WaitForGameProcessExit\": false", "\"WaitForGameProcessExit\": true");
-                        let _ = std::fs::write(&dest, modified_content);
-                    } else {
-                        let _ = std::fs::copy(&p, &dest);
-                    }
-                } else if !dest.exists() {
+                if file_name.to_string_lossy().to_lowercase() != "settings.json" {
                     #[cfg(unix)]
                     let _ = std::os::unix::fs::symlink(&p, &dest);
                 }
             }
         }
-        println!("EAC Settings.json: using original relative executable path");
-    }
+        
+        let p = content_eac_dir.join("Settings.json");
+        let dest = eac_dir.join("Settings.json");
+        if let Ok(content) = std::fs::read_to_string(&p) {
+            let mut modified_content = content.clone();
+            if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(exe) = json.get("executable").and_then(|v| v.as_str()) {
+                    let fixed = exe.replace('/', "\\\\");
+                    json["executable"] = serde_json::Value::String(fixed.clone());
+                    json["wait_for_game_process_exit"] = serde_json::Value::String("true".to_string());
+                    modified_content = serde_json::to_string_pretty(&json).unwrap();
+                    
+                    let parts: Vec<&str> = fixed.split('\\').collect();
+                    let mut current_run = run_dir.clone();
+                    let mut current_content = content_dir.clone();
+                    for (i, part) in parts.iter().enumerate() {
+                        current_run = current_run.join(part);
+                        current_content = current_content.join(part);
+                        
+                        if i < parts.len() - 1 {
+                            // It's a directory component
+                            if current_run.is_symlink() {
+                                let _ = std::fs::remove_file(&current_run);
+                            }
+                            if !current_run.exists() {
+                                let _ = std::fs::create_dir_all(&current_run);
+                                // Symlink other files so we don't lose them
+                                if let Ok(entries) = std::fs::read_dir(&current_content) {
+                                    for entry in entries.flatten() {
+                                        let p2 = entry.path();
+                                        let file_name = p2.file_name().unwrap();
+                                        let dest2 = current_run.join(file_name);
+                                        if file_name.to_string_lossy().to_lowercase() != parts[i+1].to_lowercase() {
+                                            #[cfg(unix)]
+                                            let _ = std::os::unix::fs::symlink(&p2, &dest2);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // It's the executable file
+                            if current_run.is_symlink() {
+                                let _ = std::fs::remove_file(&current_run);
+                            }
+                            if !current_run.exists() {
+                                // COPY the decrypted executable
+                                let mut found_decrypted = false;
+                                for (_, dec_path) in &decrypted_exes {
+                                    if dec_path.file_name().unwrap().to_string_lossy().to_lowercase() == part.to_lowercase() {
+                                        let _ = std::fs::copy(dec_path, &current_run);
+                                        found_decrypted = true;
+                                        break;
+                                    }
+                                }
+                                if !found_decrypted {
+                                    let _ = std::fs::copy(&current_content, &current_run);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = std::fs::write(&dest, modified_content);
+        }
+    } 
 
     let game_binary_in_run = run_dir.join(&target_exe_name);
     if cached_exe.exists() {

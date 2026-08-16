@@ -389,11 +389,10 @@ fn record_window_state(window: &tao::window::Window, state_lock: &Arc<Mutex<Wind
             st.x = Some(pos.x);
             st.y = Some(pos.y);
         }
-        let size = window.inner_size();
-        if size.width >= 600 && size.height >= 400 {
-            st.width = size.width;
-            st.height = size.height;
-        }
+        let scale = window.scale_factor().max(1.0);
+        let size = window.inner_size().to_logical::<f64>(scale);
+        st.width = (size.width as u32).clamp(960, 3840);
+        st.height = (size.height as u32).clamp(600, 2160);
     }
     save_window_state(&st);
 }
@@ -411,18 +410,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let win_state_ipc = win_state.clone();
     let win_state_loop = win_state.clone();
 
+    let initial_w = saved_state.width.clamp(960, 3840);
+    let initial_h = saved_state.height.clamp(600, 2160);
+
     let mut window_builder = WindowBuilder::new()
         .with_title("noct's xodus gui")
         .with_decorations(false)
         .with_resizable(true)
         .with_min_inner_size(Size::Logical(LogicalSize::new(960.0, 600.0)))
-        .with_inner_size(Size::Physical(PhysicalSize::new(
-            saved_state.width.max(960),
-            saved_state.height.max(600),
-        )));
+        .with_inner_size(Size::Logical(LogicalSize::new(initial_w as f64, initial_h as f64)));
 
     if let (Some(x), Some(y)) = (saved_state.x, saved_state.y) {
-        window_builder = window_builder.with_position(Position::Physical(PhysicalPosition::new(x, y)));
+        if x >= -50 && y >= -50 && x < 5000 && y < 5000 {
+            window_builder = window_builder.with_position(Position::Physical(PhysicalPosition::new(x, y)));
+        }
     }
 
     if saved_state.is_maximized {
@@ -1258,12 +1259,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let wv = builder.build_gtk(vbox)?;
         let gtk_win = window.gtk_window();
         if let (Some(x), Some(y)) = (saved_state.x, saved_state.y) {
-            gtk_win.move_(x, y);
+            if x >= -50 && y >= -50 && x < 5000 && y < 5000 {
+                gtk_win.move_(x, y);
+            }
         }
         if saved_state.is_maximized {
             gtk_win.maximize();
         } else {
-            gtk_win.resize(saved_state.width.max(960) as i32, saved_state.height.max(600) as i32);
+            gtk_win.resize(initial_w as i32, initial_h as i32);
         }
         gtk_win.show_all();
         gtk_win.present();
@@ -1302,9 +1305,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let is_max = window.is_maximized();
                 let mut st = win_state_loop.lock().unwrap();
                 st.is_maximized = is_max;
-                if !is_max && size.width >= 600 && size.height >= 400 {
-                    st.width = size.width;
-                    st.height = size.height;
+                if !is_max {
+                    let scale = window.scale_factor().max(1.0);
+                    let log_size = size.to_logical::<f64>(scale);
+                    st.width = (log_size.width as u32).clamp(960, 3840);
+                    st.height = (log_size.height as u32).clamp(600, 2160);
                 }
                 save_window_state(&st);
             }
