@@ -185,7 +185,6 @@ function switchTab(tabId) {
   });
 
   if (tabId === 'friends') renderFriends();
-  else if (tabId === 'saves') renderSaves();
   else if (tabId === 'library') renderGames();
 }
 
@@ -883,7 +882,6 @@ function getEditionTier(title) {
     state.games.forEach(g => {
       if (g.installed) g.cloudSynced = true;
     });
-    renderSaves();
     showToast('Auto-synced Xbox Live cloud saves for all installed games');
   };
 
