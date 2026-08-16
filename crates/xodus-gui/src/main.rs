@@ -749,10 +749,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                      let gp_script = format!("if (window.setGamePassStatus) window.setGamePassStatus({has_gamepass}, {tier_json});");
                                      let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(gp_script));
 
+                                     let saved_presence = if let Some(ref database) = db {
+                                         database.get_user_profile("me").ok().flatten().and_then(|p| p.presence_state).unwrap_or_else(|| "Active".into())
+                                     } else {
+                                         "Active".to_string()
+                                     };
+
+                                     // Sync saved presence state with Xbox Live on startup/refresh
+                                     let _ = xodus::api::xbox::SocialClient::new(&client).set_presence(&auth_header, &saved_presence).await;
+
                                      let user_json = serde_json::json!({
                                          "gamertag": current_gamertag,
                                          "displayPic": current_pic,
                                          "gamerscore": current_score,
+                                         "presence": saved_presence,
                                          "hasGamePass": has_gamepass,
                                          "subscriptionTier": subscription_tier,
                                      });
@@ -766,7 +776,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                              gamertag: current_gamertag,
                                              display_pic_url: current_pic,
                                              gamer_score: current_score,
-                                             presence_state: Some("Online".into()),
+                                             presence_state: Some(saved_presence),
                                              presence_title: None,
                                              has_gamepass,
                                              subscription_tier: subscription_tier.clone(),

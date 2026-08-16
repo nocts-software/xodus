@@ -9,7 +9,7 @@ const state = {
   user: {
     gamertag: 'Xbox Player',
     puid: '',
-    presence: 'Active',
+    presence: (typeof localStorage !== 'undefined' && localStorage.getItem('xodus_user_presence')) || 'Active',
     gamerscore: '0',
     avatar: 'https://assets.xboxservices.com/assets/default_avatar.png',
     hasGamePass: false,
@@ -50,19 +50,6 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupCustomDropdowns() {
   setupSingleDropdown('presenceDropdown', 'presenceTrigger', (value) => {
     updatePresence(value);
-    const dot = document.getElementById('presenceDot');
-    const text = document.getElementById('presenceCurrentText');
-    const avatarBadge = document.getElementById('userPresenceBadge');
-
-    if (text) {
-      text.textContent = value === 'Active' ? 'Online' : (value === 'Away' ? 'Away' : 'Invisible');
-    }
-    if (dot) {
-      dot.className = `status-indicator-dot dot-${value === 'Active' ? 'online' : (value === 'Away' ? 'away' : 'invisible')}`;
-    }
-    if (avatarBadge) {
-      avatarBadge.className = `presence-badge ${value === 'Active' ? 'online' : (value === 'Away' ? 'away' : 'offline')}`;
-    }
   });
 
   setupSingleDropdown('protonDropdown', 'protonTrigger', (value) => {
@@ -194,13 +181,32 @@ function renderUser() {
   if (nameEl) nameEl.textContent = state.user.gamertag;
   const avatarEl = document.getElementById('userAvatar');
   if (avatarEl) avatarEl.src = state.user.avatar;
-  const badge = document.getElementById('userPresenceBadge');
-  if (badge) badge.className = `presence-badge ${state.user.presence.toLowerCase()}`;
   const scoreEl = document.getElementById('userScoreText');
   if (scoreEl) {
     const scoreVal = parseInt(state.user.gamerscore, 10);
     scoreEl.textContent = isNaN(scoreVal) ? state.user.gamerscore : scoreVal.toLocaleString();
   }
+
+  // Update Presence Status Indicators
+  const presenceVal = state.user.presence || 'Active';
+  const textEl = document.getElementById('presenceCurrentText');
+  const dotEl = document.getElementById('presenceDot');
+  const badgeEl = document.getElementById('userPresenceBadge');
+
+  if (textEl) {
+    textEl.textContent = presenceVal === 'Active' ? 'Online' : (presenceVal === 'Away' ? 'Away' : 'Invisible');
+  }
+  if (dotEl) {
+    dotEl.className = `status-indicator-dot dot-${presenceVal === 'Active' ? 'online' : (presenceVal === 'Away' ? 'away' : 'invisible')}`;
+  }
+  if (badgeEl) {
+    badgeEl.className = `presence-badge ${presenceVal === 'Active' ? 'online' : (presenceVal === 'Away' ? 'away' : 'offline')}`;
+  }
+
+  const dropdownItems = document.querySelectorAll('#presenceMenu .dropdown-item');
+  dropdownItems.forEach(item => {
+    item.classList.toggle('selected', item.getAttribute('data-value') === presenceVal);
+  });
 
   // Render Game Pass Tier in User Profile Box
   const gpBadge = document.getElementById('userGamePassBadge');
@@ -627,9 +633,15 @@ function joinFriendGame(gamertag, gameTitle) {
   sendNativeCommand({ cmd: 'join_game', gamertag: gamertag, title: gameTitle });
 }
 
-function updatePresence(state) {
-  showToast(`Presence status updated to: ${state}`);
-  sendNativeCommand({ cmd: 'set_presence', state: state });
+function updatePresence(stateVal) {
+  state.user.presence = stateVal;
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('xodus_user_presence', stateVal);
+  }
+  renderUser();
+  const label = stateVal === 'Active' ? 'Online' : (stateVal === 'Away' ? 'Away' : 'Invisible');
+  showToast(`Presence status updated to: ${label}`);
+  sendNativeCommand({ cmd: 'set_presence', state: stateVal });
 }
 
 function refreshUserLicenses() {
@@ -690,6 +702,12 @@ function setupIPCBridge() {
       if (profile.display_pic) state.user.avatar = profile.display_pic;
       if (profile.gamerscore) state.user.gamerscore = profile.gamerscore;
       if (profile.gamerScore) state.user.gamerscore = profile.gamerScore;
+      if (profile.presence) {
+        state.user.presence = profile.presence;
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('xodus_user_presence', profile.presence);
+        }
+      }
       if (profile.hasGamePass !== undefined) {
         state.hasGamePassSubscription = !!profile.hasGamePass;
         state.user.hasGamePass = !!profile.hasGamePass;
