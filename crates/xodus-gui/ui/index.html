@@ -387,9 +387,23 @@
         </div>
       </div>
 
+  <!-- Uninstall Confirmation Modal -->
+  <div class="modal-overlay" id="uninstallModal" style="display: none;">
+    <div class="modal-content">
+      <h2 style="margin-top: 0; color: #ff6b6b;">Uninstall Game</h2>
+      <p id="uninstallMessage" style="margin-bottom: 20px; color: var(--text-secondary); line-height: 1.5;">
+        Are you sure you want to uninstall <strong id="uninstallGameTitle" style="color: var(--text-primary);">Game</strong>?<br>
+        Your cloud saves will be synced to Xbox Live before removal.
+      </p>
       <div style="display: flex; justify-content: flex-end; gap: 12px;">
-        <button class="btn btn-secondary" onclick="resolveSaveConflict('local')">Use Local Save</button>
-        <button class="btn btn-primary" onclick="resolveSaveConflict('cloud')">Use Cloud Save</button>
+        <button class="btn btn-secondary" onclick="closeUninstallModal()">Cancel</button>
+        <button class="btn btn-danger" id="confirmUninstallBtn" onclick="confirmUninstallGame()" style="background: #e81123; color: white; border: none; display: inline-flex; align-items: center;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          Uninstall
+        </button>
       </div>
     </div>
   </div>

@@ -11,6 +11,7 @@ pub mod save;
 pub mod splicense;
 pub mod status;
 pub mod streaming;
+pub mod uninstall;
 
 
 

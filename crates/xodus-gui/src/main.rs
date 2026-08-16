@@ -1066,6 +1066,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             });
                         }
+                        "uninstall_game" => {
+                            let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("Game").to_string();
+                            let path = v.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                            log::info!("Handling uninstall request for: {title} (Path: {path})");
+                            let proxy_tokio = proxy_ipc.clone();
+
+                            rt.spawn(async move {
+                                let cli_path = find_xodus_cli();
+                                let target_arg = if !path.is_empty() { path.clone() } else { title.clone() };
+
+                                let child = tokio::process::Command::new(&cli_path)
+                                    .arg("uninstall")
+                                    .arg(&target_arg)
+                                    .spawn();
+
+                                if let Ok(mut c) = child {
+                                    let status = c.wait().await;
+                                    if status.map(|s| s.success()).unwrap_or(false) {
+                                        let script = format!(
+                                            "if (window.onUninstallComplete) window.onUninstallComplete('{}', '{}');",
+                                            title.replace('\'', "\\'"),
+                                            path.replace('\'', "\\'")
+                                        );
+                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                    } else {
+                                        if !path.is_empty() && std::path::Path::new(&path).is_dir() {
+                                            let _ = tokio::fs::remove_dir_all(&path).await;
+                                            let script = format!(
+                                                "if (window.onUninstallComplete) window.onUninstallComplete('{}', '{}');",
+                                                title.replace('\'', "\\'"),
+                                                path.replace('\'', "\\'")
+                                            );
+                                            let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                        } else {
+                                            let script = format!(
+                                                "if (window.showToast) window.showToast('Failed to uninstall {}');",
+                                                title.replace('\'', "\\'")
+                                            );
+                                            let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                        }
+                                    }
+                                } else {
+                                    if !path.is_empty() && std::path::Path::new(&path).is_dir() {
+                                        let _ = tokio::fs::remove_dir_all(&path).await;
+                                        let script = format!(
+                                            "if (window.onUninstallComplete) window.onUninstallComplete('{}', '{}');",
+                                            title.replace('\'', "\\'"),
+                                            path.replace('\'', "\\'")
+                                        );
+                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                    } else {
+                                        let script = format!(
+                                            "if (window.showToast) window.showToast('Failed to start uninstaller for {}');",
+                                            title.replace('\'', "\\'")
+                                        );
+                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                    }
+                                }
+                            });
+                        }
                         _ => {}
                     }
                 }

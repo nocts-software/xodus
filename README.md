@@ -215,6 +215,20 @@ xodus save pull /mnt/w11/XboxGames/Balatro
 xodus save push /mnt/w11/XboxGames/Balatro
 ```
 
+#### Uninstalling Games
+
+```bash
+# Safely uninstall a game, push pending cloud saves, and wipe runtime cache
+xodus uninstall /mnt/w11/XboxGames/Balatro
+
+# Uninstall by game title or store ID
+xodus uninstall "Balatro"
+
+# Optional flags:
+# --skip-save-sync     Skip syncing cloud saves to Xbox Live before removal
+# --remove-compatdata  Also remove the Proton compatdata prefix
+```
+
 #### Extraction & Encryption Tools
 
 ```bash

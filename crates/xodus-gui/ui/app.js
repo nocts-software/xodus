@@ -308,22 +308,29 @@ function updateHeroBanner(game) {
   if (actionsEl) {
     if (game.installed) {
       actionsEl.innerHTML = `
-        <button class="btn btn-primary btn-lg" onclick="launchGame('${game.title}', '${game.path}')">
+        <button class="btn btn-primary btn-lg" onclick="launchGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
           </svg>
           <span>Play</span>
         </button>
-        <button class="btn btn-secondary btn-lg" onclick="syncGameSaves('${game.path}')">
+        <button class="btn btn-secondary btn-lg" onclick="syncGameSaves('${game.path.replace(/'/g, "\\'")}')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
           </svg>
           <span>Sync Saves</span>
         </button>
+        <button class="btn btn-secondary btn-lg btn-danger-hover" onclick="promptUninstallGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')" title="Uninstall ${game.title}">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          <span>Uninstall</span>
+        </button>
       `;
     } else {
       actionsEl.innerHTML = `
-        <button class="btn btn-primary btn-lg" onclick="installGame('${game.title}', '${game.path}')">
+        <button class="btn btn-primary btn-lg" onclick="installGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -380,9 +387,9 @@ function renderGames() {
       badgeText = 'OWNED';
     }
 
-    let actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="installGame('${game.title}', '${game.path}')">Install</button>`;
+    let actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="installGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">Install</button>`;
     if (game.installed) {
-      actionBtnHtml = `<button class="btn btn-primary btn-sm" style="flex: 1;" onclick="launchGame('${game.title}', '${game.path}')">Play</button>`;
+      actionBtnHtml = `<button class="btn btn-primary btn-sm" style="flex: 1;" onclick="launchGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">Play</button>`;
     } else if (game.licenseType === 'gamepass' && state.hasGamePassSubscription === false) {
       actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1; opacity: 0.7;" onclick="showToast('Active PC Game Pass subscription required to install this title')">Join Game Pass</button>`;
     }
@@ -400,11 +407,18 @@ function renderGames() {
         </div>
         <div class="game-card-actions">
           ${actionBtnHtml}
-          <button class="btn btn-secondary btn-sm" onclick="syncGameSaves('${game.path}')" title="Sync Saves">
+          <button class="btn btn-secondary btn-sm" onclick="syncGameSaves('${game.path.replace(/'/g, "\\'")}')" title="Sync Saves">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
             </svg>
           </button>
+          ${game.installed ? `
+          <button class="btn btn-secondary btn-sm btn-danger-hover" onclick="promptUninstallGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')" title="Uninstall ${game.title}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>` : ''}
         </div>
       </div>
     `;
@@ -537,6 +551,39 @@ window.resolveSaveConflict = function(choice) {
   showToast(choice === 'cloud' ? 'Downloading cloud save & launching...' : 'Uploading local save & launching...');
   sendNativeCommand({ cmd: 'resolve_save_conflict', path: path, choice: choice });
 };
+
+window.promptUninstallGame = function(title, path) {
+  state.pendingUninstall = { title, path };
+  const modal = document.getElementById('uninstallModal');
+  const titleEl = document.getElementById('uninstallGameTitle');
+  if (titleEl) titleEl.textContent = title;
+  if (modal) modal.style.display = 'flex';
+};
+
+window.closeUninstallModal = function() {
+  const modal = document.getElementById('uninstallModal');
+  if (modal) modal.style.display = 'none';
+  state.pendingUninstall = null;
+};
+
+window.confirmUninstallGame = function() {
+  const modal = document.getElementById('uninstallModal');
+  if (modal) modal.style.display = 'none';
+  if (!state.pendingUninstall) return;
+  const { title, path } = state.pendingUninstall;
+  state.pendingUninstall = null;
+  uninstallGame(title, path);
+};
+
+function uninstallGame(title, path) {
+  showToast(`Uninstalling ${title}...`);
+  showProgress(`Uninstalling ${title}...`, 50, 'Removing');
+  sendNativeCommand({
+    cmd: 'uninstall_game',
+    title: title,
+    path: path
+  });
+}
 
 function installGame(title, path) {
   const game = state.games.find(g => g.title === title || g.path === path);
@@ -808,7 +855,27 @@ function getEditionTier(title) {
       game.installed = true;
       if (path) game.path = path;
       renderGames();
+      renderSidebarInstalled();
       updateHeroBanner(game);
+    } else {
+      renderGames();
+      renderSidebarInstalled();
+    }
+  };
+
+  window.onUninstallComplete = (title, path) => {
+    hideProgress();
+    showToast(`Successfully uninstalled ${title}`);
+    const game = state.games.find(g => g.title === title || g.path === path || (path && g.path && g.path.includes(path)) || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.installed = false;
+      game.size = 'Uninstalled';
+      renderGames();
+      renderSidebarInstalled();
+      updateHeroBanner(game);
+    } else {
+      renderGames();
+      renderSidebarInstalled();
     }
   };
 

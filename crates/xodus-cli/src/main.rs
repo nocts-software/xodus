@@ -90,6 +90,15 @@ enum SubCommand {
         #[command(subcommand)]
         action: ClepAction,
     },
+    #[command(about = "Uninstall an installed game and clean up local runtime cache")]
+    Uninstall {
+        #[clap(help = "Path to installed game directory, or product title/ID")]
+        target: String,
+        #[arg(long, default_value_t = false, help = "Skip syncing cloud saves to Xbox Live before removal")]
+        skip_save_sync: bool,
+        #[arg(long, default_value_t = false, help = "Also remove Proton compatdata prefix")]
+        remove_compatdata: bool,
+    },
     #[command(about = "Decode SPLicenseBlock")]
     SpLicense {
         block: String,
@@ -266,6 +275,20 @@ async fn main() -> ExitCode {
             } => commands::clep::generate(smbios, disk_serial),
             ClepAction::Decrypt { data } => commands::clep::decrypt(data),
         },
+        SubCommand::Uninstall {
+            target,
+            skip_save_sync,
+            remove_compatdata,
+        } => {
+            commands::uninstall::run(
+                &client,
+                &tokens,
+                target,
+                skip_save_sync,
+                remove_compatdata,
+            )
+            .await
+        }
         SubCommand::SpLicense { block } => commands::splicense::run(block),
     };
 

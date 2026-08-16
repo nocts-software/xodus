@@ -1287,3 +1287,21 @@ body {
   padding: 16px;
 }
 
+.btn-danger-hover:hover {
+  background: rgba(232, 17, 35, 0.18) !important;
+  color: #ff6b6b !important;
+  border-color: rgba(232, 17, 35, 0.4) !important;
+}
+
+.btn-danger {
+  background: #e81123;
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: #f12b3c;
+  box-shadow: 0 0 16px rgba(232, 17, 35, 0.4);
+}
+
