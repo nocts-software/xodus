@@ -1322,6 +1322,29 @@ pub async fn run(
             println!("EAC Runtime found at: {}", eac_runtime_path);
         }
 
+        // Clean AppImage environment leaks that can cause Proton/Vulkan crashes
+        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+            let cleaned_ld: Vec<&str> = ld
+                .split(':')
+                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                .collect();
+            if cleaned_ld.is_empty() {
+                cmd.env_remove("LD_LIBRARY_PATH");
+            } else {
+                cmd.env("LD_LIBRARY_PATH", cleaned_ld.join(":"));
+            }
+        }
+        if let Ok(py) = std::env::var("PYTHONPATH") {
+            if py.contains(".mount_") {
+                cmd.env_remove("PYTHONPATH");
+            }
+        }
+        if let Ok(pyhome) = std::env::var("PYTHONHOME") {
+            if pyhome.contains(".mount_") {
+                cmd.env_remove("PYTHONHOME");
+            }
+        }
+
         cmd.arg("run")
            .arg(&win_exec_target)
            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", format!("{}/.local/share/Steam", home))
