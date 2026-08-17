@@ -1043,14 +1043,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script.to_string()));
 
                                         // 2. Launch game immediately if no discrepancy
-                                        let log_file = std::fs::File::create("/tmp/xodus-run.log").unwrap();
-                                        let child = tokio::process::Command::new(find_xodus_cli())
-                                            .arg("run")
-                                            .arg(&path_owned)
-                                            .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
-                                            .stderr(std::process::Stdio::from(log_file))
-                                            .spawn();
-                                        if let Ok(mut c) = child {
+                                        let mut cmd = tokio::process::Command::new(find_xodus_cli());
+                                        cmd.arg("run").arg(&path_owned);
+                                        if let Ok(log_file) = std::fs::File::create("/tmp/xodus-run.log") {
+                                            if let Ok(log_err) = log_file.try_clone() {
+                                                cmd.stdout(std::process::Stdio::from(log_file));
+                                                cmd.stderr(std::process::Stdio::from(log_err));
+                                            }
+                                        }
+                                        if let Ok(mut c) = cmd.spawn() {
                                             let _ = c.wait().await;
                                         }
                                     }
@@ -1072,14 +1073,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let script = "if (window.showToast) window.showToast('Launching game...');";
                                     let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script.to_string()));
 
-                                    let log_file = std::fs::File::create("/tmp/xodus-run.log").unwrap();
-                                    let child = tokio::process::Command::new(find_xodus_cli())
-                                        .arg("run")
-                                        .arg(&path_owned)
-                                        .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
-                                        .stderr(std::process::Stdio::from(log_file))
-                                        .spawn();
-                                    if let Ok(mut c) = child {
+                                    let mut cmd = tokio::process::Command::new(find_xodus_cli());
+                                    cmd.arg("run").arg(&path_owned);
+                                    if let Ok(log_file) = std::fs::File::create("/tmp/xodus-run.log") {
+                                        if let Ok(log_err) = log_file.try_clone() {
+                                            cmd.stdout(std::process::Stdio::from(log_file));
+                                            cmd.stderr(std::process::Stdio::from(log_err));
+                                        }
+                                    }
+                                    if let Ok(mut c) = cmd.spawn() {
                                         let _ = c.wait().await;
                                     }
                                 });
