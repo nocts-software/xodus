@@ -1,6 +1,7 @@
 pub mod proto;
 pub mod router;
 pub mod xml;
+pub mod license_helper;
 
 pub fn encode_message(magic: u32, msg_type: u16, message_buffer: Vec<u8>) -> Vec<u8> {
     let mut buffer = Vec::with_capacity(8);

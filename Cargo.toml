@@ -10,3 +10,6 @@ base64 = { version = "0.23.1" }
 
 [patch.crates-io]
 ntfs = { git = "https://github.com/xodus-gaming/ntfs.git" }
+
+[patch."https://github.com/xodus-gaming/xal-rs"]
+xal = { path = "../xal-rs" }

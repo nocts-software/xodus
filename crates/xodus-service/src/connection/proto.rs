@@ -100,10 +100,26 @@ pub async fn handle(
             Ok(XodusMessageType::XuserGetTokenRequest) => {
                 let req = XUserGetTokenRequest::decode(&msg.payload[..]).ok();
                 let raw_relying_party = req
-                    .and_then(|r| if r.relying_party.is_empty() { None } else { Some(r.relying_party) })
+                    .as_ref()
+                    .and_then(|r| if r.relying_party.is_empty() { None } else { Some(r.relying_party.clone()) })
                     .unwrap_or_else(|| "http://xboxlive.com".to_string());
 
-                log::info!("[XODUS-SERVICE] Processing XuserGetTokenRequest for raw relying party: '{raw_relying_party}'");
+                let beard_context = if raw_relying_party.contains("discovery.prod.athena") {
+                    "KIWIBEARD-CHECK: Athena Title Discovery (validating Title ID, version & maintenance)"
+                } else if raw_relying_party.contains("ares") || raw_relying_party.contains("athena.prod.msrareservices.com") {
+                    "ERMINEBEARD-CHECK: Athena Ares Login (validating XSTS claims, ProofKey signature & license)"
+                } else if raw_relying_party.contains("eos") || raw_relying_party.contains("epicgames") {
+                    "HAZELBEARD-CHECK: EOS Crossplay & Lobby Auth"
+                } else if raw_relying_party.contains("profile.xboxlive.com") {
+                    "ASHBEARD-CHECK: Xbox Live User Profile & Settings"
+                } else {
+                    "GENERIC-XBL-AUTH: Xbox Live Token Exchange"
+                };
+
+                log::info!("[MS-IPC] ========================================================");
+                log::info!("[MS-IPC] === Incoming XuserGetTokenRequest from Game ===");
+                log::info!("[BEARD-DIAG] Target Phase: {}", beard_context);
+                log::info!("[MS-IPC]   Raw Relying Party: '{}'", raw_relying_party);
 
                 // Sanitize relying party (if full URL, extract scheme + host)
                 let sanitized_rp = if let Some(scheme_idx) = raw_relying_party.find("://") {
@@ -120,63 +136,124 @@ pub async fn handle(
                     let num_str: String = after_tid.chars().take_while(|c| c.is_ascii_digit()).collect();
                     num_str.parse().ok()
                 } else {
-                    std::env::var("XODUS_TITLE_ID").ok().and_then(|s| u32::from_str_radix(&s, 16).ok().or_else(|| s.parse().ok()))
+                    None
                 };
 
                 let effective_rp = if raw_relying_party.contains("msrareservices.com") || raw_relying_party.contains("athena") {
-                    if detected_tid.is_none() {
-                        detected_tid = Some(1717113201);
-                    }
+                    detected_tid = Some(1717113201);
                     "rp://athena.prod.msrareservices.com/".to_string()
                 } else if raw_relying_party.contains("epicgames.dev") || raw_relying_party.contains("eos.seaofthieves") {
+                    detected_tid = Some(1717113201);
                     "rp://eos.seaofthieves.com/".to_string()
+                } else if raw_relying_party.contains("minecraft") || raw_relying_party.contains("playfabapi.com") || raw_relying_party.contains("mojang") {
+                    if detected_tid.is_none() {
+                        detected_tid = Some(896932871); // Minecraft for Windows Title ID (35760C07)
+                    }
+                    if !raw_relying_party.ends_with('/') {
+                        format!("{}/", raw_relying_party)
+                    } else {
+                        raw_relying_party.clone()
+                    }
                 } else if raw_relying_party.contains("xboxlive.com") {
                     "http://xboxlive.com".to_string()
                 } else {
                     sanitized_rp.clone()
                 };
 
-                log::info!("[XODUS-SERVICE] Resolved effective relying party: '{effective_rp}' (tid={detected_tid:?})");
+                log::info!("[MS-IPC]   Sanitized RP: '{}'", sanitized_rp);
+                log::info!("[MS-IPC]   Effective RP: '{}'", effective_rp);
+                log::info!("[MS-IPC]   Detected Title ID: {:?}", detected_tid);
 
+                let start_time = std::time::Instant::now();
                 let mut token_res = if let Some(tid) = detected_tid {
-                    log::info!("[XODUS-SERVICE] Requesting multi-claim XSTS token for Title ID {tid} on RP '{effective_rp}'...");
+                    log::info!("[MS-IPC] Requesting multi-claim XSTS token (Title ID: {}, RP: '{}')...", tid, effective_rp);
                     xodus::api::xbox::get_or_request_xsts_for_title(&context.client, context.tokens(), tid, &effective_rp).await
                 } else {
+                    log::info!("[MS-IPC] Requesting standard XSTS token (RP: '{}')...", effective_rp);
                     xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &effective_rp).await
                 };
 
                 if token_res.is_err() && effective_rp != "http://xboxlive.com" {
-                    log::warn!("[XODUS-SERVICE] Effective RP '{effective_rp}' failed, retrying with raw RP '{raw_relying_party}'...");
-                    token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &raw_relying_party).await;
+                    log::warn!("[MS-IPC] Effective RP '{}' failed ({:?}), retrying with raw RP '{}'...", effective_rp, token_res.as_ref().err(), raw_relying_party);
+                    token_res = if let Some(tid) = detected_tid {
+                        xodus::api::xbox::get_or_request_xsts_for_title(&context.client, context.tokens(), tid, &raw_relying_party).await
+                    } else {
+                        xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), &raw_relying_party).await
+                    };
                 }
 
                 if token_res.is_err() && effective_rp != "http://xboxlive.com" && raw_relying_party != "http://xboxlive.com" {
-                    log::warn!("[XODUS-SERVICE] Specific RP failed, falling back to standard http://xboxlive.com...");
+                    log::warn!("[MS-IPC] Specific RP failed, falling back to standard http://xboxlive.com...");
                     token_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), "http://xboxlive.com").await;
                 }
 
-                let token = match token_res {
+                let elapsed = start_time.elapsed();
+                let (token, signature) = match token_res {
                     Ok(xsts) => {
-                        let header = xodus::api::xbox::get_xsts_auth_header(xsts);
-                        log::info!("[XODUS-SERVICE] Successfully generated valid XSTS auth header (length: {})", header.len());
-                        header
+                        let uhs = xsts.user_hash().unwrap_or("UNKNOWN").to_string();
+                        let header = xodus::api::xbox::get_xsts_auth_header(xsts.clone());
+                        log::info!("[MS-IPC] === XSTS Token Success in {:.2?} ===", elapsed);
+                        log::info!("[MS-IPC]   User Hash (UHS): {}", uhs);
+                        log::info!("[MS-IPC]   Authorization Header: length={} bytes, prefix='{}...'", header.len(), &header[..std::cmp::min(40, header.len())]);
+
+                        let req_ref = req.as_ref();
+                        let method = req_ref.map(|r| r.http_method.as_str()).unwrap_or("GET");
+                        let url = req_ref.map(|r| r.url.as_str()).unwrap_or(&raw_relying_party);
+                        let body = req_ref.map(|r| r.body.as_slice()).unwrap_or(&[]);
+
+                        // Log the actual request body for Ares/Athena requests (critical for Erminebeard debugging)
+                        if effective_rp.contains("athena") || effective_rp.contains("msrareservices") || url.contains("ares") {
+                            let body_str = std::str::from_utf8(body).unwrap_or("<non-utf8>");
+                            log::info!("[ERMINEBEARD-DIAG] SoT Ares Request: method={}, url={}", method, url);
+                            log::info!("[ERMINEBEARD-DIAG] SoT Ares Request body (len={}): {}", body.len(), &body_str[..body_str.len().min(2048)]);
+                        }
+
+                        let sig = match xodus::api::xbox::sign_request_for_rp(
+                            &effective_rp,
+                            if method.is_empty() { "GET" } else { method },
+                            if url.is_empty() { &raw_relying_party } else { url },
+                            &header,
+                            body,
+                        ) {
+                            Some(s) => {
+                                log::info!("[MS-IPC] Generated authentic ECDSA Proof-of-Possession signature for {} {} (length: {})", method, url, s.len());
+                                s
+                            }
+                            None => {
+                                log::info!("[MS-IPC] No session signer needed/found for RP '{}', returning empty signature", effective_rp);
+                                String::new()
+                            }
+                        };
+
+                        log::info!("[MS-IPC]   Calculated Request Signature: length={} bytes, value='{}...'", sig.len(), &sig[..std::cmp::min(30, sig.len())]);
+                        log::info!("[BEARD-DIAG] Handshake payload generated cleanly for '{}'", beard_context);
+
+                        let returned_token = if raw_relying_party.contains("playfabapi.com") || raw_relying_party.contains("minecraft") {
+                            log::info!("[MS-IPC] Stripping XBL3.0 prefix from token for PlayFab/Minecraft RP.");
+                            xsts.token.clone()
+                        } else {
+                            header.clone()
+                        };
+
+                        (returned_token, sig)
                     }
                     Err(err) => {
-                        log::error!("[XODUS-SERVICE] All XSTS token acquisition attempts failed: {err}");
-                        match context.tokens().get_user_sts_token() {
+                        log::error!("[BEARD-DIAG] WARNING: Handshake failure on '{}': {}", beard_context, err);
+                        log::error!("[MS-IPC] === XSTS Token Acquisition FAILED in {:.2?}: {} ===", elapsed, err);
+                        let fallback_tok = match context.tokens().get_user_sts_token() {
                             Ok(xodus::models::secrets::Token::Legacy(tok)) => tok.token,
                             _ => "MOCK_XSTS_TOKEN".to_string(),
-                        }
+                        };
+                        (fallback_tok, String::new())
                     }
                 };
-
-                let signature = String::new();
 
                 let resp = XUserGetTokenResponse {
                     status: 0,
                     token,
                     signature,
                 };
+                log::info!("[MS-IPC] ========================================================");
                 (
                     XodusMessageType::XuserGetTokenResponse,
                     resp.encode_to_vec(),
@@ -185,9 +262,28 @@ pub async fn handle(
 
             Ok(XodusMessageType::XuserGetGamerPictureRequest) => {
                 let _req = XUserGetGamerPictureRequest::decode(&msg.payload[..]).ok();
+                let xsts_res = xodus::api::xbox::get_or_request_xsts(&context.client, context.tokens(), "http://xboxlive.com").await;
+                let (auth_header, xuid) = match xsts_res {
+                    Ok(ref xsts) => (
+                        xodus::api::xbox::get_xsts_auth_header(xsts.clone()),
+                        xsts.xuid().map(|s| s.to_string()).unwrap_or_else(|| "2533274976279120".to_string()),
+                    ),
+                    Err(_) => (String::new(), "2533274976279120".to_string()),
+                };
+
+                let picture_data = if !auth_header.is_empty() {
+                    xodus::api::xbox::profile::fetch_or_cache_gamer_picture(
+                        &context.client,
+                        &auth_header,
+                        &xuid,
+                    ).await
+                } else {
+                    vec![0x89, 0x50, 0x4E, 0x47]
+                };
+
                 let resp = XUserGetGamerPictureResponse {
                     status: 0,
-                    picture_data: vec![0x89, 0x50, 0x4E, 0x47], // PNG magic bytes
+                    picture_data,
                 };
                 (
                     XodusMessageType::XuserGetGamerPictureResponse,
@@ -243,6 +339,37 @@ pub async fn handle(
                 };
                 (
                     XodusMessageType::XstoreAcquireLicenseResponse,
+                    resp.encode_to_vec(),
+                )
+            }
+
+            Ok(XodusMessageType::XstoreQueryLicenseTokenRequest) => {
+                let req = xodus::proto::xodus::XStoreQueryLicenseTokenRequest::decode(&msg.payload[..]).ok();
+                let mut token_str = "MOCK_LIC_TOKEN".to_string();
+                if let Some(r) = req {
+                    let mut prod_id = r.product_id.clone();
+                    if prod_id.len() >= 15 && prod_id.chars().all(char::is_numeric) {
+                        log::warn!("[XODUS-SERVICE] Game passed an XUID-like numeric ID as Product ID ('{}'). Overriding with standard Sea of Thieves Store ID '9P2N57MC619K'", prod_id);
+                        prod_id = "9P2N57MC619K".to_string();
+                    }
+
+                    log::info!("[XODUS-SERVICE] Requesting Store License Token for user {} / product {}", r.user_id, prod_id);
+                    match crate::connection::license_helper::get_store_license_token(&context.client, context.tokens(), prod_id).await {
+                        Ok(t) => {
+                            log::info!("[XODUS-SERVICE] Successfully fetched license token!");
+                            token_str = t;
+                        }
+                        Err(e) => {
+                            log::error!("[XODUS-SERVICE] Failed to get license token: {e}");
+                        }
+                    }
+                }
+                let resp = xodus::proto::xodus::XStoreQueryLicenseTokenResponse {
+                    status: 0,
+                    license_token: token_str,
+                };
+                (
+                    XodusMessageType::XstoreQueryLicenseTokenResponse,
                     resp.encode_to_vec(),
                 )
             }

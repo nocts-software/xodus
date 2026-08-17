@@ -426,6 +426,8 @@ where
         .await
         .expect("no err");
     let remote_xvd = XvdFile::parse(&mut remote_file).await.expect("no err");
+    let cid = remote_xvd.content_id().to_string();
+    let pkg_final_path = out.join(format!(".xodus-streaming-{}.msixvc", cid));
     println!("Encrypted section infos: {:?}", remote_xvd.encrypted_section_infos);
     let mut rfiles: HashMap<String, SegmentFile> = HashMap::new();
 
@@ -563,7 +565,9 @@ where
 
     if files_to_download.is_empty() {
         println!("All files already completely downloaded and verified.");
+        std::fs::remove_file(&pkg_final_path).ok();
         std::fs::remove_file(&final_path).ok();
+        std::fs::copy(&cache_path, &pkg_final_path).ok();
         std::fs::rename(&cache_path, &final_path).ok();
         return Ok(());
     }
@@ -649,7 +653,9 @@ where
     })
     .await;
 
+    std::fs::remove_file(&pkg_final_path).ok();
     std::fs::remove_file(&final_path).ok();
+    std::fs::copy(&cache_path, &pkg_final_path).ok();
     std::fs::rename(&cache_path, &final_path).map_err(|e| format!("Failed to move cached container: {e}"))?;
     Ok(())
 }

@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 default-run = "xodus-cli"
 
+[[bin]]
+name = "xodus-cli"
+path = "src/main.rs"
+
+[[bin]]
+name = "test_tvr"
+path = "src/bin/test_tvr.rs"
+
 [dependencies]
 xodus = { path = "../xodus" }
 msixvc = { path = "../msixvc" }

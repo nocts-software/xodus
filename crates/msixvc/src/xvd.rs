@@ -913,6 +913,7 @@ impl XvdFile {
         if sfile.length == 0 {
             return Ok(());
         }
+        println!("extract_file_ex: from_file={}, sfile.offset={}, sfile.length={}, dest length={}", from_file, sfile.offset, sfile.length, sfile.length);
 
         let s = self.encrypted_section_infos.iter().find(|s| {
             sfile.offset >= s.section_offset && sfile.offset < s.section_offset + s.section_length
@@ -971,6 +972,7 @@ impl XvdFile {
                 read_bytes += n;
             }
             if read_bytes == 0 {
+                println!("extract_file_ex breaking because read_bytes == 0. n is 0. page_in_section={}, sfile.length={}", page_in_section, sfile.length);
                 break;
             }
             let to_write = std::cmp::min(

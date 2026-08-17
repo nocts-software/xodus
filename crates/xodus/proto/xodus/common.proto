@@ -30,6 +30,8 @@ enum XodusMessageType {
     XSTORE_ACQUIRE_LICENSE_RESPONSE = 24;
     XGAMESAVE_ENUMERATE_BLOBS_REQUEST = 25;
     XGAMESAVE_ENUMERATE_BLOBS_RESPONSE = 26;
+    XSTORE_QUERY_LICENSE_TOKEN_REQUEST = 27;
+    XSTORE_QUERY_LICENSE_TOKEN_RESPONSE = 28;
 }
 
 message XodusMessage {
@@ -58,9 +60,18 @@ message XUserGetGamertagResponse {
     string gamertag = 2;
 }
 
+message HttpHeader {
+    string name = 1;
+    string value = 2;
+}
+
 message XUserGetTokenRequest {
     uint64 user_id = 1;
     string relying_party = 2;
+    string http_method = 3;
+    string url = 4;
+    repeated HttpHeader headers = 5;
+    bytes body = 6;
 }
 
 message XUserGetTokenResponse {
@@ -166,4 +177,15 @@ message XGameSaveEnumerateBlobsResponse {
 
 
 
+
+
+message XStoreQueryLicenseTokenRequest {
+    uint64 user_id = 1;
+    string product_id = 2;
+}
+
+message XStoreQueryLicenseTokenResponse {
+    uint32 status = 1;
+    string license_token = 2;
+}
 

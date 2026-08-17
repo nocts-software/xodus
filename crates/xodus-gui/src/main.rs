@@ -23,6 +23,42 @@ enum CustomEvent {
     DragWindow,
 }
 
+static ACTIVE_GAMES: std::sync::OnceLock<tokio::sync::Mutex<std::collections::HashMap<String, u32>>> = std::sync::OnceLock::new();
+fn active_games() -> &'static tokio::sync::Mutex<std::collections::HashMap<String, u32>> {
+    ACTIVE_GAMES.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn get_descendant_pids(pid: u32) -> Vec<u32> {
+    let mut pids = vec![pid];
+    if let Ok(output) = std::process::Command::new("pgrep").arg("-P").arg(pid.to_string()).output() {
+        if let Ok(s) = String::from_utf8(output.stdout) {
+            for child in s.lines().filter_map(|l| l.parse::<u32>().ok()) {
+                pids.extend(get_descendant_pids(child));
+            }
+        }
+    }
+    pids
+}
+
+fn check_game_window(root_pid: u32) -> bool {
+    let pids = get_descendant_pids(root_pid);
+    if let Ok(output) = std::process::Command::new("wmctrl").arg("-lp").output() {
+        if let Ok(s) = String::from_utf8(output.stdout) {
+            for line in s.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    if let Ok(w_pid) = parts[2].parse::<u32>() {
+                        if pids.contains(&w_pid) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 fn normalize_title(title: &str) -> String {
     let mut s = title.to_lowercase();
     let patterns = [
@@ -957,6 +993,218 @@ async fn run_hydrate_and_sync(
     }
 }
 
+#[derive(Clone, Default, Debug)]
+struct ActiveDownloadTask {
+    title: String,
+    product_id: String,
+    path: String,
+    selected_packages: Vec<String>,
+    dest_dir: String,
+    is_paused: bool,
+    is_cancelled: bool,
+    child_pid: Option<u32>,
+}
+
+async fn run_download_worker(
+    title: String,
+    product_id: String,
+    selected_packages: Vec<String>,
+    path: String,
+    download_ctrl: Arc<tokio::sync::Mutex<Option<ActiveDownloadTask>>>,
+    proxy_tokio: EventLoopProxy<CustomEvent>,
+) {
+    let mut target_id = product_id.clone();
+    if target_id.len() != 12 || !target_id.chars().all(|c| c.is_alphanumeric()) {
+        if let Ok(db) = xodus::db::Database::open_default() {
+            if let Ok(products) = db.get_all_catalog_products() {
+                for p in products {
+                    if (p.title.eq_ignore_ascii_case(&title) || normalize_title(&p.title) == normalize_title(&title)) && p.product_id.len() == 12 {
+                        target_id = p.product_id;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let safe_title: String = title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect();
+    let dest_dir = format!("/mnt/w11/XboxGames/{}", safe_title.trim());
+    let _ = tokio::fs::create_dir_all(&dest_dir).await;
+
+    let packages_to_install: Vec<String> = if !selected_packages.is_empty() {
+        selected_packages.clone()
+    } else {
+        vec![target_id]
+    };
+
+    {
+        let mut ad = download_ctrl.lock().await;
+        *ad = Some(ActiveDownloadTask {
+            title: title.clone(),
+            product_id: product_id.clone(),
+            path: path.clone(),
+            selected_packages: packages_to_install.clone(),
+            dest_dir: dest_dir.clone(),
+            is_paused: false,
+            is_cancelled: false,
+            child_pid: None,
+        });
+    }
+
+    let total_pkgs = packages_to_install.len();
+    let mut installed_success = 0;
+    let cli_path = find_xodus_cli();
+
+    for (i, pkg_target) in packages_to_install.iter().enumerate() {
+        // Check if canceled or paused before starting next package
+        {
+            let ad = download_ctrl.lock().await;
+            if let Some(ref current) = *ad {
+                if current.is_cancelled || current.is_paused {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        let pkg_idx = i + 1;
+        let total_p = total_pkgs;
+        let initial_pct = ((i as f64) / (total_pkgs as f64) * 100.0) as u32;
+
+        let init_script = format!(
+            "if (window.updateDownloadProgress) window.updateDownloadProgress('{}', {}, 'Connecting to Microsoft Delivery Optimization (Package {} of {})...');",
+            title.replace('\'', "\\'"),
+            initial_pct,
+            pkg_idx,
+            total_p
+        );
+        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(init_script));
+
+        let child = tokio::process::Command::new(&cli_path)
+            .arg("streaming")
+            .arg(pkg_target)
+            .arg(&dest_dir)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+
+        if let Ok(mut c) = child {
+            let child_id = c.id();
+            {
+                let mut ad = download_ctrl.lock().await;
+                if let Some(ref mut current) = *ad {
+                    current.child_pid = child_id;
+                }
+            }
+
+            if let Some(stdout) = c.stdout.take() {
+                let proxy_prog = proxy_tokio.clone();
+                let title_prog = title.clone();
+                tokio::spawn(async move {
+                    use tokio::io::AsyncBufReadExt;
+                    let mut reader = tokio::io::BufReader::new(stdout).lines();
+                    while let Ok(Some(line)) = reader.next_line().await {
+                        if line.starts_with("PROGRESS:") {
+                            let json_str = &line["PROGRESS:".len()..];
+                            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                if let Some(obj) = val.as_object_mut() {
+                                    obj.insert("packageIndex".to_string(), serde_json::json!(pkg_idx));
+                                    obj.insert("totalPackages".to_string(), serde_json::json!(total_p));
+                                }
+                                let script = format!(
+                                    "if (window.onDetailedDownloadProgress) window.onDetailedDownloadProgress('{}', {});",
+                                    title_prog.replace('\'', "\\'"),
+                                    serde_json::to_string(&val).unwrap_or_default()
+                                );
+                                let _ = proxy_prog.send_event(CustomEvent::EvaluateScript(script));
+                            }
+                        }
+                    }
+                });
+            }
+
+            let status = c.wait().await;
+            {
+                let mut ad = download_ctrl.lock().await;
+                if let Some(ref mut current) = *ad {
+                    current.child_pid = None;
+                    if current.is_cancelled || current.is_paused {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if status.map(|s| s.success()).unwrap_or(false) {
+                installed_success += 1;
+            } else {
+                log::warn!("Package streaming stopped for {} (package: {})", title, pkg_target);
+            }
+        }
+    }
+
+    // Check final state
+    let ad_state = {
+        let ad = download_ctrl.lock().await;
+        ad.clone()
+    };
+
+    if let Some(st) = ad_state {
+        if st.is_paused {
+            log::info!("Download paused for {}", title);
+            let script = format!("if (window.onDownloadPaused) window.onDownloadPaused('{}');", title.replace('\'', "\\'"));
+            let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+            return;
+        }
+        if st.is_cancelled {
+            log::info!("Download canceled for {}", title);
+            let script = format!("if (window.onDownloadCanceled) window.onDownloadCanceled('{}');", title.replace('\'', "\\'"));
+            let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+            return;
+        }
+    }
+
+    if installed_success > 0 || has_game_files(std::path::Path::new(&dest_dir)) {
+        let pkgs_manifest_file = std::path::Path::new(&dest_dir).join(".xodus_packages.json");
+        let mut active_pkgs = std::collections::HashSet::new();
+        if pkgs_manifest_file.exists() {
+            if let Ok(data) = std::fs::read_to_string(&pkgs_manifest_file) {
+                if let Ok(existing) = serde_json::from_str::<Vec<String>>(&data) {
+                    active_pkgs.extend(existing);
+                }
+            }
+        }
+        active_pkgs.extend(packages_to_install.clone());
+        let active_list: Vec<String> = active_pkgs.into_iter().collect();
+        if let Ok(json_data) = serde_json::to_string(&active_list) {
+            let _ = std::fs::write(&pkgs_manifest_file, json_data);
+        }
+
+        let mut ad = download_ctrl.lock().await;
+        *ad = None;
+
+        let script = format!(
+            "if (window.onInstallComplete) window.onInstallComplete('{}', '{}');",
+            title.replace('\'', "\\'"),
+            dest_dir.replace('\'', "\\'")
+        );
+        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+    } else {
+        let mut ad = download_ctrl.lock().await;
+        *ad = None;
+        if !has_game_files(std::path::Path::new(&dest_dir)) {
+            let _ = tokio::fs::remove_dir_all(&dest_dir).await;
+        }
+        let script = format!(
+            "if (window.onInstallError) window.onInstallError('{}', 'Package streaming download failed or was canceled.');",
+            title.replace('\'', "\\'")
+        );
+        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env("XODUS_LOG");
     xodus::secrets::init_secrets().ok();
@@ -1006,6 +1254,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let proxy_ipc = proxy.clone();
     let tokens_ipc = tokens.clone();
+    let active_download = Arc::new(tokio::sync::Mutex::new(Option::<ActiveDownloadTask>::None));
+    let active_download_ipc = active_download.clone();
 
     let builder = WebViewBuilder::new()
         .with_custom_protocol("xodus-file".into(), move |_id, request| {
@@ -1048,6 +1298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         .with_ipc_handler(move |req| {
             let rt = rt_ipc.clone();
+            let active_download_cmd = active_download_ipc.clone();
 
             let body = req.body();
             eprintln!("[XODUS IPC] Received command: {body}");
@@ -1124,8 +1375,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                         if let Ok(mut c) = cmd.spawn() {
+                                            if let Some(pid) = c.id() {
+                                                active_games().lock().await.insert(path_owned.clone(), pid);
+                                                
+                                                let proxy_window = proxy_tokio.clone();
+                                                tokio::spawn(async move {
+                                                    for _ in 0..15 {
+                                                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                                                        if check_game_window(pid) {
+                                                            let _ = proxy_window.send_event(CustomEvent::EvaluateScript("if (window.onGameWindowReady) window.onGameWindowReady();".to_string()));
+                                                            break;
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            let p_owned = path_owned.clone();
+                                            let proxy_clone = proxy_tokio.clone();
                                             let _ = c.wait().await;
+                                            active_games().lock().await.remove(&p_owned);
+                                            let script = format!("if (window.onGameStopped) window.onGameStopped('{}');", p_owned.replace('\'', "\\'"));
+                                            let _ = proxy_clone.send_event(CustomEvent::EvaluateScript(script));
                                         }
+                                    }
+                                });
+                            }
+                        }
+                        "stop_game" => {
+                            if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
+                                let path_owned = path.to_string();
+                                rt.spawn(async move {
+                                    if let Some(pid) = active_games().lock().await.get(&path_owned).copied() {
+                                        let _ = tokio::process::Command::new("kill")
+                                            .arg("-SIGINT")
+                                            .arg(pid.to_string())
+                                            .status()
+                                            .await;
                                     }
                                 });
                             }
@@ -1154,7 +1438,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
                                     if let Ok(mut c) = cmd.spawn() {
+                                        if let Some(pid) = c.id() {
+                                            active_games().lock().await.insert(path_owned.clone(), pid);
+                                            
+                                            let proxy_window = proxy_tokio.clone();
+                                            tokio::spawn(async move {
+                                                for _ in 0..15 {
+                                                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                                                    if check_game_window(pid) {
+                                                        let _ = proxy_window.send_event(CustomEvent::EvaluateScript("if (window.onGameWindowReady) window.onGameWindowReady();".to_string()));
+                                                        break;
+                                                    }
+                                                }
+                                            });
+                                        }
+                                        let p_owned = path_owned.clone();
+                                        let proxy_clone = proxy_tokio.clone();
                                         let _ = c.wait().await;
+                                        active_games().lock().await.remove(&p_owned);
+                                        let script = format!("if (window.onGameStopped) window.onGameStopped('{}');", p_owned.replace('\'', "\\'"));
+                                        let _ = proxy_clone.send_event(CustomEvent::EvaluateScript(script));
                                     }
                                 });
                             }
@@ -1586,127 +1889,99 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             log::info!("Handling install request for: {title} (ID: {product_id}, Path: {path}, Pkgs: {:?})", selected_packages);
 
                             let proxy_tokio = proxy_ipc.clone();
+                            let download_ctrl = active_download_cmd.clone();
 
                             rt.spawn(async move {
-                                // Check if product_id is a 12-char BigID or lookup from catalog_cache in DB
-                                let mut target_id = product_id.clone();
-                                if target_id.len() != 12 || !target_id.chars().all(|c| c.is_alphanumeric()) {
-                                    if let Ok(db) = xodus::db::Database::open_default() {
-                                        if let Ok(products) = db.get_all_catalog_products() {
-                                            for p in products {
-                                                if (p.title.eq_ignore_ascii_case(&title) || normalize_title(&p.title) == normalize_title(&title)) && p.product_id.len() == 12 {
-                                                    target_id = p.product_id;
-                                                    break;
-                                                }
-                                            }
-                                        }
+                                run_download_worker(title, product_id, selected_packages, path, download_ctrl, proxy_tokio).await;
+                            });
+                        }
+                        "pause_download" => {
+                            let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            log::info!("Handling pause download request for: {title}");
+                            let download_ctrl = active_download_cmd.clone();
+                            let proxy_tokio = proxy_ipc.clone();
+                            rt.spawn(async move {
+                                let mut pid_to_kill = None;
+                                {
+                                    let mut ad = download_ctrl.lock().await;
+                                    if let Some(ref mut current) = *ad {
+                                        current.is_paused = true;
+                                        pid_to_kill = current.child_pid;
+                                    }
+                                }
+                                if let Some(pid) = pid_to_kill {
+                                    log::info!("Terminating streaming process PID {pid} to pause download");
+                                    let _ = tokio::process::Command::new("kill")
+                                        .arg("-TERM")
+                                        .arg(pid.to_string())
+                                        .output()
+                                        .await;
+                                }
+                                let script = format!("if (window.onDownloadPaused) window.onDownloadPaused('{}');", title.replace('\'', "\\'"));
+                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                            });
+                        }
+                        "resume_download" => {
+                            let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            let product_id = v.get("productId").or_else(|| v.get("id")).and_then(|p| p.as_str()).unwrap_or("").to_string();
+                            let selected_packages: Vec<String> = v.get("selectedPackages")
+                                .and_then(|p| p.as_array())
+                                .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
+                                .unwrap_or_default();
+                            let path = v.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                            log::info!("Handling resume download request for: {title}");
+
+                            let download_ctrl = active_download_cmd.clone();
+                            let proxy_tokio = proxy_ipc.clone();
+                            let (mut use_title, mut use_prod_id, mut use_pkgs, mut use_path) = (title, product_id, selected_packages, path);
+                            
+                            rt.spawn(async move {
+                                {
+                                    let mut ad = download_ctrl.lock().await;
+                                    if let Some(ref mut current) = *ad {
+                                        if use_title.is_empty() { use_title = current.title.clone(); }
+                                        if use_prod_id.is_empty() { use_prod_id = current.product_id.clone(); }
+                                        if use_pkgs.is_empty() { use_pkgs = current.selected_packages.clone(); }
+                                        if use_path.is_empty() { use_path = current.path.clone(); }
+                                        current.is_paused = false;
+                                        current.is_cancelled = false;
                                     }
                                 }
 
-                                let safe_title: String = title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect();
-                                let dest_dir = format!("/mnt/w11/XboxGames/{}", safe_title.trim());
-                                let _ = tokio::fs::create_dir_all(&dest_dir).await;
+                                let script = format!("if (window.onDownloadResumed) window.onDownloadResumed('{}');", use_title.replace('\'', "\\'"));
+                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
 
-                                let packages_to_install: Vec<String> = if !selected_packages.is_empty() {
-                                    selected_packages
-                                } else {
-                                    vec![target_id]
-                                };
-
-                                let total_pkgs = packages_to_install.len();
-                                let mut installed_success = 0;
-                                let cli_path = find_xodus_cli();
-
-                                for (i, pkg_target) in packages_to_install.iter().enumerate() {
-                                    let pkg_idx = i + 1;
-                                    let total_p = total_pkgs;
-                                    let initial_pct = ((i as f64) / (total_pkgs as f64) * 100.0) as u32;
-
-                                    let init_script = format!(
-                                        "if (window.updateDownloadProgress) window.updateDownloadProgress('{}', {}, 'Connecting to Microsoft Delivery Optimization (Package {} of {})...');",
-                                        title.replace('\'', "\\'"),
-                                        initial_pct,
-                                        pkg_idx,
-                                        total_p
-                                    );
-                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(init_script));
-
-                                    let child = tokio::process::Command::new(&cli_path)
-                                        .arg("streaming")
-                                        .arg(pkg_target)
-                                        .arg(&dest_dir)
-                                        .stdout(std::process::Stdio::piped())
-                                        .stderr(std::process::Stdio::piped())
-                                        .spawn();
-
-                                    if let Ok(mut c) = child {
-                                        if let Some(stdout) = c.stdout.take() {
-                                            let proxy_prog = proxy_tokio.clone();
-                                            let title_prog = title.clone();
-                                            tokio::spawn(async move {
-                                                use tokio::io::AsyncBufReadExt;
-                                                let mut reader = tokio::io::BufReader::new(stdout).lines();
-                                                while let Ok(Some(line)) = reader.next_line().await {
-                                                    if line.starts_with("PROGRESS:") {
-                                                        let json_str = &line["PROGRESS:".len()..];
-                                                        if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                                                            if let Some(obj) = val.as_object_mut() {
-                                                                obj.insert("packageIndex".to_string(), serde_json::json!(pkg_idx));
-                                                                obj.insert("totalPackages".to_string(), serde_json::json!(total_p));
-                                                            }
-                                                            let script = format!(
-                                                                "if (window.onDetailedDownloadProgress) window.onDetailedDownloadProgress('{}', {});",
-                                                                title_prog.replace('\'', "\\'"),
-                                                                serde_json::to_string(&val).unwrap_or_default()
-                                                            );
-                                                            let _ = proxy_prog.send_event(CustomEvent::EvaluateScript(script));
-                                                        }
-                                                    }
-                                                }
-                                            });
-                                        }
-
-                                        let status = c.wait().await;
-                                        if status.map(|s| s.success()).unwrap_or(false) {
-                                            installed_success += 1;
-                                        } else {
-                                            log::warn!("Package streaming failed for {} (package: {})", title, pkg_target);
-                                        }
+                                run_download_worker(use_title, use_prod_id, use_pkgs, use_path, download_ctrl, proxy_tokio).await;
+                            });
+                        }
+                        "cancel_download" => {
+                            let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            log::info!("Handling cancel download request for: {title}");
+                            let download_ctrl = active_download_cmd.clone();
+                            let proxy_tokio = proxy_ipc.clone();
+                            rt.spawn(async move {
+                                let mut pid_to_kill = None;
+                                {
+                                    let mut ad = download_ctrl.lock().await;
+                                    if let Some(ref mut current) = *ad {
+                                        current.is_cancelled = true;
+                                        pid_to_kill = current.child_pid;
                                     }
                                 }
-
-                                if installed_success > 0 || has_game_files(std::path::Path::new(&dest_dir)) {
-                                    let pkgs_manifest_file = std::path::Path::new(&dest_dir).join(".xodus_packages.json");
-                                    let mut active_pkgs = std::collections::HashSet::new();
-                                    if pkgs_manifest_file.exists() {
-                                        if let Ok(data) = std::fs::read_to_string(&pkgs_manifest_file) {
-                                            if let Ok(existing) = serde_json::from_str::<Vec<String>>(&data) {
-                                                active_pkgs.extend(existing);
-                                            }
-                                        }
-                                    }
-                                    active_pkgs.extend(packages_to_install.clone());
-                                    let active_list: Vec<String> = active_pkgs.into_iter().collect();
-                                    if let Ok(json_data) = serde_json::to_string(&active_list) {
-                                        let _ = std::fs::write(&pkgs_manifest_file, json_data);
-                                    }
-
-                                    let script = format!(
-                                        "if (window.onInstallComplete) window.onInstallComplete('{}', '{}');",
-                                        title.replace('\'', "\\'"),
-                                        dest_dir.replace('\'', "\\'")
-                                    );
-                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
-                                } else {
-                                    if !has_game_files(std::path::Path::new(&dest_dir)) {
-                                        let _ = tokio::fs::remove_dir_all(&dest_dir).await;
-                                    }
-                                    let script = format!(
-                                        "if (window.onInstallError) window.onInstallError('{}', 'Package streaming download failed or was canceled.');",
-                                        title.replace('\'', "\\'")
-                                    );
-                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                if let Some(pid) = pid_to_kill {
+                                    log::info!("Terminating streaming process PID {pid} to cancel download");
+                                    let _ = tokio::process::Command::new("kill")
+                                        .arg("-KILL")
+                                        .arg(pid.to_string())
+                                        .output()
+                                        .await;
                                 }
+                                {
+                                    let mut ad = download_ctrl.lock().await;
+                                    *ad = None;
+                                }
+                                let script = format!("if (window.onDownloadCanceled) window.onDownloadCanceled('{}');", title.replace('\'', "\\'"));
+                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
                             });
                         }
                         "uninstall_game" => {

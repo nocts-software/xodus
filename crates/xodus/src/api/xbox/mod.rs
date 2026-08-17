@@ -91,6 +91,8 @@ pub async fn run_with_title(
         "RETAIL".to_string(),
     );
 
+    log::info!("[MS-AUTH] Starting run_with_title: TitleID={}, RP='{}'", title_id, relying_party);
+
     let device_token_resp = crate::api::live::exchange_device_token(
         client,
         dev_token.clone(),
@@ -102,8 +104,39 @@ pub async fn run_with_title(
     let Token::Compact(compact_dev) = device_token_resp.into() else {
         return Err("Device token compact err".into());
     };
+    log::info!("[MS-AUTH] Successfully exchanged device token via login.live.com (length: {})", compact_dev.len());
+
     let dt = auth.get_device_token_rps(compact_dev).await?;
-    let title_tok = auth.get_title_token_win(&dt.token, title_id.into()).await?;
+    log::info!("[MS-AUTH] Successfully obtained XBL Device Token from device.auth.xboxlive.com (expires: {})", dt.not_after);
+
+    // Read game version from env (set by xodus-cli from AppxManifest.xml).
+    // This causes Microsoft's title.auth.xboxlive.com to embed the TVR (Title Version Record)
+    // into the title token's xti.tvr claim, which is required by Athena Ares login.
+    let game_version = std::env::var("XODUS_GAME_VERSION").ok();
+    let game_version_ref = game_version.as_deref();
+    let package_family_name = std::env::var("XODUS_PACKAGE_FAMILY_NAME").ok();
+    let pfn_ref = package_family_name.as_deref();
+    log::info!("[MS-AUTH] Using TitleVersion for TVR: {:?}, PackageFamilyName: {:?}", game_version_ref, pfn_ref);
+
+    let title_tok_opt: Option<xal::response::TitleToken> = match auth.get_title_token_win_versioned(&dt.token, title_id.into(), game_version_ref, pfn_ref).await {
+        Ok(tok) => {
+            log::info!("[MS-AUTH] Successfully obtained versioned Title Token (expires: {})", tok.not_after);
+            Some(tok)
+        }
+        Err(err) => {
+            log::warn!("[MS-AUTH] Versioned title token failed ({err}), retrying basic title token...");
+            match auth.get_title_token_win(&dt.token, title_id.into()).await {
+                Ok(tok) => {
+                    log::info!("[MS-AUTH] Successfully obtained basic Title Token (expires: {})", tok.not_after);
+                    Some(tok)
+                }
+                Err(err2) => {
+                    log::warn!("[MS-AUTH] Basic title token failed ({err2}), proceeding with Device+User token auth...");
+                    None
+                }
+            }
+        }
+    };
 
     let user_token = crate::api::live::exchange_user_token(
         client,
@@ -122,6 +155,7 @@ pub async fn run_with_title(
 
     let user_token: Token = match user_token {
         ExchangeUserTokenOutcome::Fault(f) => {
+            log::error!("[MS-AUTH] User token exchange returned SOAP Fault: {f:?}");
             return Err(format!("Failed to get exchange MS token: {f:?}").into());
         }
         ExchangeUserTokenOutcome::Issued(
@@ -138,7 +172,10 @@ pub async fn run_with_title(
     let Token::Compact(user_token) = user_token else {
         return Err("Unsupported token".into());
     };
+    log::info!("[MS-AUTH] Successfully exchanged user token via login.live.com");
+
     let resp = authenticate_xbox_user(client, user_token).await?;
+    log::info!("[MS-AUTH] Successfully authenticated user at user.auth.xboxlive.com (UHS: {:?}, expires: {})", resp.user_hash(), resp.not_after);
 
     let xal_user = xal::response::UserToken {
         issue_instant: chrono::Utc::now(),
@@ -147,12 +184,22 @@ pub async fn run_with_title(
         display_claims: None,
     };
 
-    let xsts_token = auth.get_xsts_token(
+    log::info!("[MS-AUTH] Requesting multi-claim XSTS token from xsts.auth.xboxlive.com for RP '{}' (Sandbox: RETAIL, Device+Title+User)...", relying_party);
+    let xsts_token = match auth.get_xsts_token(
         Some(&dt),
-        Some(&title_tok),
+        title_tok_opt.as_ref(),
         Some(&xal_user),
         relying_party,
-    ).await?;
+    ).await {
+        Ok(tok) => {
+            log::info!("[MS-AUTH] XSTS token issued successfully by xsts.auth.xboxlive.com (expires: {}, token len: {})", tok.not_after, tok.token.len());
+            tok
+        }
+        Err(err) => {
+            log::error!("[MS-AUTH] XSTS authorization failed for RP '{}': {}", relying_party, err);
+            return Err(err.into());
+        }
+    };
 
     let display_claims = xsts_token.display_claims.map(|dc| crate::models::xbox::DisplayClaims {
         xui: dc.xui.into_iter().map(|map| crate::models::xbox::XuiClaim {
@@ -162,9 +209,17 @@ pub async fn run_with_title(
             mgt: map.get("mgt").cloned(),
             agg: map.get("agg").cloned(),
         }).collect(),
-        xti: vec![crate::models::xbox::XtiClaim {
-            tid: Some(title_id.to_string()),
-        }],
+        xti: if dc.xti.is_empty() {
+            vec![crate::models::xbox::XtiClaim {
+                tid: Some(title_id.to_string()),
+                tvr: None,
+            }]
+        } else {
+            dc.xti.into_iter().map(|map| crate::models::xbox::XtiClaim {
+                tid: map.get("tid").cloned().or_else(|| Some(title_id.to_string())),
+                tvr: map.get("tvr").cloned(),
+            }).collect()
+        },
         xdi: None,
     }).unwrap_or_else(|| crate::models::xbox::DisplayClaims {
         xui: vec![crate::models::xbox::XuiClaim {
@@ -176,9 +231,18 @@ pub async fn run_with_title(
         }],
         xti: vec![crate::models::xbox::XtiClaim {
             tid: Some(title_id.to_string()),
+            tvr: None,
         }],
         xdi: None,
     });
+
+    log::info!("[MS-AUTH] Formatted DisplayClaims: XUI count={}, XTI count={:?}", display_claims.xui.len(), display_claims.xti);
+
+    let signer = auth.request_signer();
+    if let Ok(mut lock) = SIGNER_CACHE.lock() {
+        lock.insert(relying_party.to_string(), signer.clone());
+        lock.insert(format!("{relying_party}#tid={title_id}"), signer);
+    }
 
     let xsts_resp = XstsResponse {
         not_after: xsts_token.not_after,
@@ -187,6 +251,45 @@ pub async fn run_with_title(
     };
 
     Ok(xsts_resp)
+}
+
+static SIGNER_CACHE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, xal::RequestSigner>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+pub fn sign_request_for_rp(
+    relying_party: &str,
+    method: &str,
+    raw_url: &str,
+    auth_header: &str,
+    body: &[u8],
+) -> Option<String> {
+    let signer = {
+        let lock = SIGNER_CACHE.lock().ok()?;
+        let trimmed_rp = relying_party.trim_end_matches('/');
+        lock.get(relying_party)
+            .or_else(|| lock.get(trimmed_rp))
+            .cloned()
+            .or_else(|| {
+                lock.iter()
+                    .find(|(k, _)| {
+                        let k_trim = k.trim_end_matches('/');
+                        trimmed_rp.contains(k_trim) || k_trim.contains(trimmed_rp)
+                    })
+                    .map(|(_, v)| v.clone())
+            })
+            .or_else(|| {
+                lock.values().next().cloned()
+            })?
+    };
+    let path_and_query = if let Ok(url) = reqwest::Url::parse(raw_url) {
+        match url.query() {
+            Some(q) => format!("{}?{}", url.path(), q),
+            None => url.path().to_string(),
+        }
+    } else {
+        raw_url.to_string()
+    };
+    crate::api::xbox::auth::sign_request(&signer, method, &path_and_query, auth_header, body)
 }
 
 pub async fn get_or_request_xsts(

@@ -81,6 +81,7 @@ const state = {
   friends: []
 };
 window.state = state;
+window.runningGames = window.runningGames || {};
 
 // Initialize Application
 function initApp() {
@@ -88,11 +89,12 @@ function initApp() {
   setupWindowControls();
   setupCustomDropdowns();
   setupSearchAndFilters();
+  setupDownloadControls();
   renderUser();
   updateGamePassVisibility();
   renderGames();
   renderFriends();
-  updateHeroBanner(state.games[0]);
+
 
   const authBtn = document.getElementById('authButton');
   if (authBtn) {
@@ -348,16 +350,21 @@ function renderSidebarInstalled() {
   }
 
   installedGames.forEach(game => {
+    const isRunning = window.runningGames[game.path] === true;
     const item = document.createElement('div');
     item.className = 'sidebar-installed-item';
     item.title = game.title;
     item.innerHTML = `
       <img class="sidebar-installed-icon" src="${game.cover}" alt="${game.title}">
       <span class="sidebar-installed-name">${game.title}</span>
-      <button class="sidebar-installed-play" title="Play ${game.title}">
+      <button class="sidebar-installed-play ${isRunning ? 'text-danger' : ''}" title="${isRunning ? 'Stop' : 'Play'} ${game.title}">
+        ${isRunning ? `
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12"></rect>
+        </svg>` : `
         <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
           <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
+        </svg>`}
       </button>
     `;
     item.addEventListener('click', (e) => {
@@ -365,119 +372,11 @@ function renderSidebarInstalled() {
         launchGame(game.title, game.path);
       } else {
         switchTab('library');
-        updateHeroBanner(game);
+        window.showGameDetailsModal(game);
       }
     });
     container.appendChild(item);
   });
-}
-
-function updateHeroBanner(game) {
-  if (!game) return;
-  const bgImg = document.getElementById('heroBgImage');
-  const titleEl = document.getElementById('heroTitle');
-  const descEl = document.getElementById('heroDesc');
-  const badgeEl = document.getElementById('heroBadge');
-  const actionsEl = document.getElementById('heroActions');
-
-  const gameTitle = game.title || 'Unknown Title';
-  const gameDev = game.developer || 'Xbox Game Studios';
-  const gameSize = game.size || 'Standard';
-  const gamePath = game.path || `/mnt/w11/XboxGames/${game.productId || game.id || ''}`;
-  const isInstalled = !!game.installed;
-
-  if (titleEl) titleEl.textContent = gameTitle;
-  if (descEl) descEl.textContent = `${gameDev} • ${gameSize} • ${isInstalled ? 'Installed Local Container' : 'Cloud Entitled'}`;
-  if (badgeEl) badgeEl.textContent = isInstalled ? 'JUST PLAYED • READY TO PLAY' : (game.licenseType === 'gamepass' ? 'INCLUDED WITH GAME PASS' : 'OWNED LICENSE');
-  if (bgImg) {
-    bgImg.src = game.splash || game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
-  }
-
-  if (actionsEl) {
-    actionsEl.innerHTML = '';
-    if (isInstalled) {
-      const playBtn = document.createElement('button');
-      playBtn.className = 'btn btn-primary btn-lg';
-      playBtn.id = 'heroPlayBtn';
-      playBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        <span>Play</span>
-      `;
-      playBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        launchGame(gameTitle, gamePath);
-      });
-      actionsEl.appendChild(playBtn);
-
-      const manageBtn = document.createElement('button');
-      manageBtn.className = 'btn btn-secondary btn-lg';
-      manageBtn.id = 'heroManageBtn';
-      manageBtn.title = `Modify packages & add-ons for ${gameTitle}`;
-      manageBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"></rect>
-          <rect x="14" y="3" width="7" height="7"></rect>
-          <rect x="14" y="14" width="7" height="7"></rect>
-          <rect x="3" y="14" width="7" height="7"></rect>
-        </svg>
-        <span>Modify Packages</span>
-      `;
-      manageBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        showInstallModal(game);
-      });
-      actionsEl.appendChild(manageBtn);
-
-      const syncBtn = document.createElement('button');
-      syncBtn.className = 'btn btn-secondary btn-lg';
-      syncBtn.id = 'heroSyncBtn';
-      syncBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-        </svg>
-        <span>Sync Saves</span>
-      `;
-      syncBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        syncGameSaves(gamePath);
-      });
-      actionsEl.appendChild(syncBtn);
-
-      const uninstallBtn = document.createElement('button');
-      uninstallBtn.className = 'btn btn-secondary btn-lg btn-danger-hover';
-      uninstallBtn.title = `Uninstall ${gameTitle}`;
-      uninstallBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-        <span>Uninstall</span>
-      `;
-      uninstallBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        promptUninstallGame(gameTitle, gamePath);
-      });
-      actionsEl.appendChild(uninstallBtn);
-    } else {
-      const installBtn = document.createElement('button');
-      installBtn.className = 'btn btn-primary btn-lg';
-      installBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span>Install Game</span>
-      `;
-      installBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        showInstallModal(game);
-      });
-      actionsEl.appendChild(installBtn);
-    }
-  }
 }
 
 // Games Grid Rendering
@@ -536,10 +435,8 @@ function renderGames() {
     card.className = 'game-card';
     card.addEventListener('click', (e) => {
       if (!e.target.closest('button')) {
-        updateHeroBanner(game);
-        if (!game.installed) {
-          showInstallModal(game);
-        }
+
+        window.showGameDetailsModal(game);
       }
     });
 
@@ -582,31 +479,14 @@ function renderGames() {
 
     if (game.installed) {
       const playBtn = document.createElement('button');
-      playBtn.className = 'btn btn-primary btn-sm';
+      playBtn.className = window.runningGames[gamePath] === true ? 'btn btn-danger btn-sm' : 'btn btn-primary btn-sm';
       playBtn.style.flex = '1';
-      playBtn.textContent = 'Play';
+      playBtn.textContent = window.runningGames[gamePath] === true ? 'Stop' : 'Play';
       playBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         launchGame(gameTitle, gamePath);
       });
       actionsDiv.appendChild(playBtn);
-
-      const manageCardBtn = document.createElement('button');
-      manageCardBtn.className = 'btn btn-secondary btn-sm';
-      manageCardBtn.title = 'Modify packages & DLCs';
-      manageCardBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"></rect>
-          <rect x="14" y="3" width="7" height="7"></rect>
-          <rect x="14" y="14" width="7" height="7"></rect>
-          <rect x="3" y="14" width="7" height="7"></rect>
-        </svg>
-      `;
-      manageCardBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        showInstallModal(game);
-      });
-      actionsDiv.appendChild(manageCardBtn);
     } else if (game.licenseType === 'gamepass' && state.hasGamePassSubscription === false) {
       const joinBtn = document.createElement('button');
       joinBtn.className = 'btn btn-secondary btn-sm';
@@ -630,37 +510,6 @@ function renderGames() {
       actionsDiv.appendChild(installBtn);
     }
 
-    const syncBtn = document.createElement('button');
-    syncBtn.className = 'btn btn-secondary btn-sm';
-    syncBtn.title = 'Sync Saves';
-    syncBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-      </svg>
-    `;
-    syncBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      syncGameSaves(gamePath);
-    });
-    actionsDiv.appendChild(syncBtn);
-
-    if (game.installed) {
-      const uninstallBtn = document.createElement('button');
-      uninstallBtn.className = 'btn btn-secondary btn-sm btn-danger-hover';
-      uninstallBtn.title = `Uninstall ${gameTitle}`;
-      uninstallBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      `;
-      uninstallBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        promptUninstallGame(gameTitle, gamePath);
-      });
-      actionsDiv.appendChild(uninstallBtn);
-    }
-
     infoDiv.appendChild(actionsDiv);
     card.appendChild(infoDiv);
     grid.appendChild(card);
@@ -675,10 +524,74 @@ function renderGames() {
   if (countText) {
     countText.textContent = `Showing ${filtered.length} of ${state.hasGamePassSubscription !== false ? state.games.length : userOwnedInstalledCount} titles`;
   }
-
   renderSidebarInstalled();
 }
 
+window.showGameDetailsModal = function(game) {
+  const gameTitle = game.title || 'Untitled';
+  const gameDev = game.developer || 'Xbox';
+  const gameSize = game.size || 'Standard';
+  const gamePath = game.path || `/mnt/w11/XboxGames/${game.productId || game.id || ''}`;
+  const isInstalled = !!game.installed;
+  const isRunning = window.runningGames[gamePath] === true;
+  
+  window.currentPopupGame = game;
+
+  const modal = document.getElementById('gameDetailsModal');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('detailsModalTitle');
+  if (titleEl) titleEl.textContent = gameTitle;
+
+  const coverEl = document.getElementById('detailsModalCover');
+  if (coverEl) coverEl.src = game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
+
+  const devEl = document.getElementById('detailsModalDev');
+  if (devEl) devEl.textContent = gameDev;
+
+  const sizeEl = document.getElementById('detailsModalSize');
+  if (sizeEl) sizeEl.textContent = gameSize;
+
+  const statusEl = document.getElementById('detailsModalStatus');
+  if (statusEl) {
+    if (isInstalled) {
+      statusEl.textContent = 'Installed';
+      statusEl.style.color = '#107c10'; // Xbox Green
+    } else {
+      statusEl.textContent = 'Not Installed';
+      statusEl.style.color = '#f39c12';
+    }
+  }
+
+  const actionsEl = document.getElementById('detailsModalActions');
+  if (actionsEl) {
+    if (isInstalled) {
+      actionsEl.innerHTML = `
+        <button class="btn ${isRunning ? 'btn-danger' : 'btn-primary'} w-100" onclick="closeGameDetailsModal(); window.launchGame('${gameTitle.replace(/'/g, "\\'")}', '${gamePath.replace(/'/g, "\\'")}')">
+          ${isRunning ? 'Stop Game' : 'Play Game'}
+        </button>
+        <button class="btn btn-secondary w-100" onclick="closeGameDetailsModal(); window.showInstallModal(window.currentPopupGame)">Modify Packages & Add-ons</button>
+        <button class="btn btn-secondary w-100" onclick="closeGameDetailsModal(); window.syncGameSaves('${gamePath.replace(/'/g, "\\'")}')">Sync Cloud Saves</button>
+        <button class="btn btn-danger w-100" onclick="closeGameDetailsModal(); window.promptUninstallGame('${gameTitle.replace(/'/g, "\\'")}', '${gamePath.replace(/'/g, "\\'")}')">Uninstall</button>
+      `;
+    } else {
+      actionsEl.innerHTML = `
+        <button class="btn btn-primary w-100" onclick="closeGameDetailsModal(); window.showInstallModal(window.currentPopupGame)">Install Game</button>
+      `;
+    }
+  }
+
+  modal.style.display = 'flex';
+  setTimeout(() => modal.classList.add('visible'), 10);
+};
+
+window.closeGameDetailsModal = function() {
+  const modal = document.getElementById('gameDetailsModal');
+  if (modal) {
+    modal.classList.remove('visible');
+    setTimeout(() => modal.style.display = 'none', 200);
+  }
+};
 
 // Cloud Saves Rendering
 function renderSaves() {
@@ -789,9 +702,101 @@ function renderFriends() {
 
 // Actions & Handlers
 function launchGame(title, path) {
+  if (window.runningGames[path]) {
+    window.showStopModal(title, path);
+    return;
+  }
+  
+  const game = state.games.find(g => g.path === path || g.title === title) || {};
+  
+  const overlay = document.getElementById('loadingOverlay');
+  if (overlay) {
+    const splashEl = document.getElementById('loadingOverlaySplash');
+    if (splashEl) {
+      splashEl.style.backgroundImage = `url('${game.splash || game.cover || ''}')`;
+    }
+    const coverEl = document.getElementById('loadingOverlayCover');
+    if (coverEl) {
+      coverEl.src = game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
+    }
+    const titleEl = document.getElementById('loadingOverlayTitle');
+    if (titleEl) {
+       titleEl.textContent = title;
+    }
+    overlay.style.display = 'flex';
+    if (window.loadingOverlayTimeout) clearTimeout(window.loadingOverlayTimeout);
+    window.loadingOverlayTimeout = setTimeout(() => {
+      window.onGameWindowReady();
+    }, 15000); // 15 second safety fallback timeout
+  }
+
   showToast(`Checking cloud saves for ${title}...`);
   sendNativeCommand({ cmd: 'launch_game', path: path });
+  
+  window.runningGames[path] = true;
+  updateUIForRunningGame(path, true);
 }
+
+window.updateUIForRunningGame = function(path, isRunning) {
+  renderSidebarInstalled();
+  if (window.currentHeroGame && window.currentHeroGame.path === path) {
+
+  }
+};
+
+window.onGameStopped = function(path) {
+  delete window.runningGames[path];
+  updateUIForRunningGame(path, false);
+  window.onGameWindowReady(); // Hide loading overlay just in case it's still up
+};
+
+window.onGameWindowReady = function() {
+  const overlay = document.getElementById('loadingOverlay');
+  if (overlay) {
+    overlay.style.display = 'none';
+  }
+  if (window.loadingOverlayTimeout) {
+    clearTimeout(window.loadingOverlayTimeout);
+    window.loadingOverlayTimeout = null;
+  }
+};
+
+window.showStopModal = function(title, path) {
+  const modalHtml = `
+  <div class="modal fade" id="stopGameModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content" style="background-color: #2c2c2c; color: white;">
+        <div class="modal-header" style="border-bottom: 1px solid #444;">
+          <h5 class="modal-title">Stop ${title}?</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Are you sure you want to force stop this game? Any unsaved progress may be lost.
+        </div>
+        <div class="modal-footer" style="border-top: 1px solid #444;">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-danger" onclick="window.confirmStopGame('${path.replace(/'/g, "\\'")}')">Stop Game</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  
+  const oldModal = document.getElementById('stopGameModal');
+  if (oldModal) oldModal.remove();
+  
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const stopModal = new bootstrap.Modal(document.getElementById('stopGameModal'));
+  stopModal.show();
+};
+
+window.confirmStopGame = function(path) {
+  sendNativeCommand({ cmd: 'stop_game', path: path });
+  const stopModalEl = document.getElementById('stopGameModal');
+  if (stopModalEl) {
+    const stopModal = bootstrap.Modal.getInstance(stopModalEl);
+    if (stopModal) stopModal.hide();
+  }
+};
 
 window.showCloudSyncDialog = function(path, localInfo, cloudInfo) {
   const modal = document.getElementById('cloudSyncModal');
@@ -1066,6 +1071,14 @@ window.confirmStartInstall = function() {
   closeInstallModal();
 
   if (isGameInstalled && newlyChecked.length > 0) {
+    state.activeDownload = {
+      title: title,
+      productId: productId,
+      path: path,
+      selectedPackages: newlyChecked,
+      isPaused: false,
+      percent: 5,
+    };
     showToast(`Downloading and installing ${newlyChecked.length} new component(s) for ${title}...`);
     showProgress(`Adding components for ${title}...`, 5, 'Connecting');
     sendNativeCommand({
@@ -1078,6 +1091,14 @@ window.confirmStartInstall = function() {
     return;
   }
 
+  state.activeDownload = {
+    title: title,
+    productId: productId,
+    path: path,
+    selectedPackages: selectedPackages,
+    isPaused: false,
+    percent: 5,
+  };
   showToast(`Connecting to Microsoft Delivery Optimization for ${title}...`);
   showProgress(`Connecting to Microsoft Delivery Optimization...`, 5, 'Connecting');
   sendNativeCommand({
@@ -1179,20 +1200,181 @@ function formatBytesJS(bytes) {
   return `${kb.toFixed(0)} KB`;
 }
 
+// Download Pause / Resume / Cancel Controls
+function setupDownloadControls() {
+  const pauseBtn = document.getElementById('statusPauseBtn');
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.activeDownload && state.activeDownload.isPaused) {
+        resumeDownload();
+      } else {
+        pauseDownload();
+      }
+    });
+  }
+
+  const cancelBtn = document.getElementById('statusCancelBtn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cancelDownload();
+    });
+  }
+}
+
+function updateStatusControls() {
+  const pauseBtn = document.getElementById('statusPauseBtn');
+  const iconPause = pauseBtn ? pauseBtn.querySelector('.icon-pause') : null;
+  const iconResume = pauseBtn ? pauseBtn.querySelector('.icon-resume') : null;
+  const stageEl = document.getElementById('statusStage');
+  const fillEl = document.getElementById('progressBarFill');
+  const iconBox = document.getElementById('statusIconBox');
+
+  const isPaused = !!(state.activeDownload && state.activeDownload.isPaused);
+
+  if (pauseBtn) {
+    if (isPaused) {
+      pauseBtn.classList.add('is-paused');
+      pauseBtn.title = 'Resume Download';
+      pauseBtn.setAttribute('aria-label', 'Resume Download');
+      if (iconPause) iconPause.style.display = 'none';
+      if (iconResume) iconResume.style.display = 'block';
+    } else {
+      pauseBtn.classList.remove('is-paused');
+      pauseBtn.title = 'Pause Download';
+      pauseBtn.setAttribute('aria-label', 'Pause Download');
+      if (iconPause) iconPause.style.display = 'block';
+      if (iconResume) iconResume.style.display = 'none';
+    }
+  }
+
+  if (stageEl) {
+    if (isPaused) {
+      stageEl.classList.add('is-paused');
+      stageEl.textContent = 'PAUSED';
+    } else {
+      stageEl.classList.remove('is-paused');
+    }
+  }
+
+  if (fillEl) {
+    if (isPaused) {
+      fillEl.classList.add('is-paused');
+    } else {
+      fillEl.classList.remove('is-paused');
+    }
+  }
+
+  if (iconBox) {
+    if (isPaused) {
+      iconBox.classList.add('is-paused');
+    } else {
+      iconBox.classList.remove('is-paused');
+    }
+  }
+}
+
+function pauseDownload() {
+  if (!state.activeDownload || !state.activeDownload.title) return;
+  state.activeDownload.isPaused = true;
+  updateStatusControls();
+
+  const speedEl = document.getElementById('statusSpeed');
+  if (speedEl) speedEl.textContent = '-- MB/s';
+  const etaEl = document.getElementById('statusEta');
+  if (etaEl) etaEl.textContent = 'Paused';
+
+  sendNativeCommand({
+    cmd: 'pause_download',
+    title: state.activeDownload.title
+  });
+
+  const game = state.games.find(g => g.title === state.activeDownload.title || g.title.toLowerCase().includes(state.activeDownload.title.toLowerCase()));
+  if (game) {
+    game.downloadPaused = true;
+    renderGames();
+
+  }
+
+  showToast(`Download paused for ${state.activeDownload.title}`);
+}
+window.pauseDownload = pauseDownload;
+
+function resumeDownload() {
+  if (!state.activeDownload || !state.activeDownload.title) return;
+  state.activeDownload.isPaused = false;
+  updateStatusControls();
+
+  const stageEl = document.getElementById('statusStage');
+  if (stageEl) stageEl.textContent = 'Resuming';
+  const etaEl = document.getElementById('statusEta');
+  if (etaEl) etaEl.textContent = 'Connecting...';
+
+  sendNativeCommand({
+    cmd: 'resume_download',
+    title: state.activeDownload.title,
+    productId: state.activeDownload.productId,
+    path: state.activeDownload.path,
+    selectedPackages: state.activeDownload.selectedPackages
+  });
+
+  const game = state.games.find(g => g.title === state.activeDownload.title || g.title.toLowerCase().includes(state.activeDownload.title.toLowerCase()));
+  if (game) {
+    game.downloadPaused = false;
+    renderGames();
+
+  }
+
+  showToast(`Resuming download for ${state.activeDownload.title}...`);
+}
+window.resumeDownload = resumeDownload;
+
+function cancelDownload() {
+  if (!state.activeDownload || !state.activeDownload.title) {
+    hideProgress();
+    return;
+  }
+  const title = state.activeDownload.title;
+
+  sendNativeCommand({
+    cmd: 'cancel_download',
+    title: title
+  });
+
+  state.activeDownload = null;
+  hideProgress();
+
+  const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+  if (game) {
+    game.downloading = false;
+    game.downloadPaused = false;
+    game.downloadProgress = 0;
+    renderGames();
+    renderSidebarInstalled();
+
+  }
+
+  showToast(`Download for ${title} canceled`);
+}
+window.cancelDownload = cancelDownload;
+
 // Progress Bar
 function showProgress(title, percent, speedText, stageText, bytesText, etaText, pkgText) {
   const bar = document.getElementById('statusBar');
   if (!bar) return;
   bar.style.display = 'flex';
 
+  const isPaused = !!(state.activeDownload && state.activeDownload.isPaused);
+
   const titleEl = document.getElementById('statusTitle');
   if (titleEl) titleEl.textContent = title || 'Downloading Game';
 
   const speedEl = document.getElementById('statusSpeed');
-  if (speedEl) speedEl.textContent = speedText || '-- MB/s';
+  if (speedEl) speedEl.textContent = isPaused ? '-- MB/s' : (speedText || '-- MB/s');
 
   const stageEl = document.getElementById('statusStage');
-  if (stageEl) stageEl.textContent = stageText || 'Downloading';
+  if (stageEl) stageEl.textContent = isPaused ? 'PAUSED' : (stageText || 'Downloading');
 
   const pkgBadge = document.getElementById('statusPkgBadge');
   if (pkgBadge) {
@@ -1208,23 +1390,27 @@ function showProgress(title, percent, speedText, stageText, bytesText, etaText, 
   if (bytesEl) bytesEl.textContent = bytesText || `${Math.round(percent)}%`;
 
   const etaEl = document.getElementById('statusEta');
-  if (etaEl) etaEl.textContent = etaText || 'Estimating time...';
+  if (etaEl) etaEl.textContent = isPaused ? 'Paused' : (etaText || 'Estimating time...');
 
   const percentEl = document.getElementById('statusPercent');
   if (percentEl) percentEl.textContent = `${Math.round(percent)}%`;
 
   const fillEl = document.getElementById('progressBarFill');
   if (fillEl) fillEl.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+
+  updateStatusControls();
 }
 
 function hideProgress() {
   const bar = document.getElementById('statusBar');
   if (bar) bar.style.display = 'none';
+  if (state.activeDownload) {
+    state.activeDownload = null;
+  }
 }
 
 function cancelActiveTask() {
-  hideProgress();
-  showToast('Task canceled by user.');
+  cancelDownload();
 }
 
 // Toast Notifications
@@ -1419,7 +1605,7 @@ function getEditionTier(title) {
       renderGames();
       renderSidebarInstalled();
       if (state.games.length > 0) {
-        updateHeroBanner(state.games.find(g => g.installed) || state.games[0]);
+
       }
       showToast(`Synchronized ${state.games.length} titles from Microsoft Collections`);
     }
@@ -1431,6 +1617,16 @@ function getEditionTier(title) {
 
   window.onDetailedDownloadProgress = (title, progress) => {
     if (!progress) return;
+    if (state.activeDownload && state.activeDownload.isPaused) return;
+
+    if (!state.activeDownload) {
+      state.activeDownload = {
+        title: title,
+        isPaused: false
+      };
+    }
+    state.activeDownload.title = title;
+
     const percent = typeof progress.percent === 'number' ? progress.percent : 0;
     const speed = formatSpeed(progress.speed);
     const eta = formatEta(progress.eta);
@@ -1448,33 +1644,80 @@ function getEditionTier(title) {
     const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
     if (game) {
       game.downloading = true;
+      game.downloadPaused = false;
       game.downloadProgress = percent;
       game.downloadSpeed = speed;
       game.downloadEta = eta;
     }
   };
 
+  window.onDownloadPaused = (title) => {
+    if (state.activeDownload) {
+      state.activeDownload.isPaused = true;
+      updateStatusControls();
+    }
+    const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.downloadPaused = true;
+      renderGames();
+
+    }
+  };
+
+  window.onDownloadResumed = (title) => {
+    if (state.activeDownload) {
+      state.activeDownload.isPaused = false;
+      updateStatusControls();
+    }
+    const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.downloadPaused = false;
+      renderGames();
+
+    }
+  };
+
+  window.onDownloadCanceled = (title) => {
+    state.activeDownload = null;
+    hideProgress();
+    const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.downloading = false;
+      game.downloadPaused = false;
+      game.downloadProgress = 0;
+      renderGames();
+      renderSidebarInstalled();
+
+    }
+  };
+
   window.onInstallError = (title, msg) => {
+    state.activeDownload = null;
     hideProgress();
     showToast(msg || `Failed to install ${title}`);
     const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
     if (game) {
+      game.downloading = false;
+      game.downloadPaused = false;
       game.installed = false;
       renderGames();
-      updateHeroBanner(game);
+
     }
   };
 
   window.onInstallComplete = (title, path) => {
+    state.activeDownload = null;
     hideProgress();
     showToast(`${title} installed and verified ready to play!`);
     const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
     if (game) {
+      game.downloading = false;
+      game.downloadPaused = false;
       game.installed = true;
       if (path) game.path = path;
       renderGames();
       renderSidebarInstalled();
-      updateHeroBanner(game);
+
     } else {
       renderGames();
       renderSidebarInstalled();
@@ -1490,7 +1733,7 @@ function getEditionTier(title) {
       game.size = 'Uninstalled';
       renderGames();
       renderSidebarInstalled();
-      updateHeroBanner(game);
+
     } else {
       renderGames();
       renderSidebarInstalled();

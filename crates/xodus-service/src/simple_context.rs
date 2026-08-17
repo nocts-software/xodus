@@ -15,6 +15,7 @@ impl SimpleContext {
     pub fn new(device_token: LegacyToken, tokens: Arc<TokenManager>) -> Self {
         let client = reqwest::ClientBuilder::new()
             .user_agent(format!("xodus-service/{}", env!("CARGO_PKG_VERSION")))
+            .danger_accept_invalid_certs(true)
             .connection_verbose(true)
             .build()
             .unwrap();

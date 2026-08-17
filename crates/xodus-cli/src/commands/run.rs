@@ -124,7 +124,37 @@ struct GameConfigInfo {
 fn parse_microsoft_game_config(content: &str) -> GameConfigInfo {
     let mut info = GameConfigInfo::default();
 
-    for line in content.lines() {
+    // Strip comments <!-- ... --> before parsing lines
+    let mut clean_content = String::new();
+    let mut in_comment = false;
+    let mut chars = content.chars().peekable();
+    while let Some(c) = chars.next() {
+        if !in_comment && c == '<' {
+            if chars.peek() == Some(&'!') {
+                let mut temp = chars.clone();
+                if temp.next() == Some('!') && temp.next() == Some('-') && temp.next() == Some('-') {
+                    chars.next(); // '!'
+                    chars.next(); // '-'
+                    chars.next(); // '-'
+                    in_comment = true;
+                    continue;
+                }
+            }
+            clean_content.push(c);
+        } else if in_comment && c == '-' {
+            let mut temp = chars.clone();
+            if temp.next() == Some('-') && temp.next() == Some('>') {
+                chars.next(); // '-'
+                chars.next(); // '>'
+                in_comment = false;
+                continue;
+            }
+        } else if !in_comment {
+            clean_content.push(c);
+        }
+    }
+
+    for line in clean_content.lines() {
         let trimmed = line.trim();
         if trimmed.contains("<Executable") && trimmed.contains("Name=") {
             if let Some(start) = trimmed.find("Name=\"") {
@@ -312,17 +342,23 @@ pub async fn run(
         out_absolute.clone()
     };
 
-    let mut container_path = None;
-    if out_absolute.join(".xodus-streaming.msixvc").exists() {
-        container_path = Some(out_absolute.join(".xodus-streaming.msixvc"));
-    } else if let Ok(entries) = std::fs::read_dir(&out_absolute) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                let name = p.file_name().unwrap().to_string_lossy();
-                if name.len() == 36 && !name.contains('.') {
-                    container_path = Some(p);
-                    break;
+    let mut container_paths: Vec<PathBuf> = Vec::new();
+    let mut checked_containers = std::collections::HashSet::new();
+
+    let check_dirs = [&out_absolute, &content_dir];
+    for dir in check_dirs {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    let name = p.file_name().unwrap().to_string_lossy();
+                    let is_container = name.ends_with(".msixvc")
+                        || name.ends_with(".xvd")
+                        || (name.len() == 36 && !name.contains('.'));
+                    if is_container && !checked_containers.contains(&p) {
+                        checked_containers.insert(p.clone());
+                        container_paths.push(p);
+                    }
                 }
             }
         }
@@ -439,7 +475,11 @@ pub async fn run(
         }
     }
 
-    let target_exe_name = exe.unwrap_or_else(|| "Game.exe".to_string()).replace('\\', "/");
+    let mut target_exe_name = exe.unwrap_or_else(|| "Game.exe".to_string()).replace('\\', "/");
+    if target_exe_name.eq_ignore_ascii_case("Minecraft.exe") && (content_dir.join("Minecraft.Windows.exe").exists() || out_absolute.join("Minecraft.Windows.exe").exists()) {
+        println!("Selecting direct game engine binary: Minecraft.Windows.exe");
+        target_exe_name = "Minecraft.Windows.exe".to_string();
+    }
     let target_exe_path = content_dir.join(&target_exe_name);
     println!("Target executable path: {:?}", target_exe_path);
 
@@ -459,8 +499,32 @@ pub async fn run(
         .unwrap_or_else(|_| "xgameruntime=n,b".to_string());
 
     let classes = [
+        "Windows.Foundation.Metadata.ApiInformation",
         "Windows.ApplicationModel.AppService.AppServiceConnection",
         "Windows.ApplicationModel.Package",
+        "Windows.ApplicationModel.DataTransfer.DataTransferManager",
+        "Windows.ApplicationModel.DataTransfer.Clipboard",
+        "Windows.UI.Text.Core.CoreTextServicesManager",
+        "Windows.System.Profile.AnalyticsInfo",
+        "Windows.System.Profile.PlatformDiagnosticsAndUsageDataSettings",
+        "Windows.Graphics.Display.DisplayInformation",
+        "Windows.UI.ViewManagement.UIViewSettings",
+        "Windows.UI.ViewManagement.ApplicationView",
+        "Windows.UI.ViewManagement.InputPane",
+        "Windows.UI.ViewManagement.StatusBar",
+        "Windows.UI.ViewManagement.Core.CoreInputView",
+        "Windows.Gaming.Input.Gamepad",
+        "Windows.Gaming.Input.RawGameController",
+        "Windows.Gaming.Preview.GamesEnumeration.GameList",
+        "Windows.ApplicationModel.Core.CoreApplication",
+        "Windows.UI.Core.CoreWindow",
+        "Windows.Devices.Geolocation.Geolocator",
+        "Windows.Devices.Enumeration.DeviceInformation",
+        "Windows.Storage.StorageFolder",
+        "Windows.Storage.ApplicationData",
+        "Windows.Storage.StorageFile",
+        "Windows.Security.Credentials.PasswordVault",
+        "Windows.Networking.Connectivity.NetworkInformation",
     ];
 
     for class_id in classes {
@@ -483,7 +547,7 @@ pub async fn run(
         Err(_) => format!("{}:{}:{}", rdir, local_xodus_lib, repo_xodus_lib),
     };
 
-    if is_plaintext || container_path.is_none() {
+    if is_plaintext || container_paths.is_empty() {
         println!("Launching in-place executable directly with Wine: {:?}", target_exe_path);
         let mut cmd = Command::new("wine");
         cmd.arg(content_dir.join(&target_exe_name))
@@ -526,145 +590,169 @@ pub async fn run(
         return if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE };
     }
 
-    let final_path = container_path.unwrap();
-    println!("Found XVD/MSIXVC container: {:?}", final_path);
-
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(final_path.to_owned())
-        .await
-        .unwrap();
-
-    let xvd = XvdFile::parse(&mut file).await.expect("no err");
-
-    let files = xvd.parse_user_package_files(&mut file).await.expect("ok");
-
-    for (k, v) in &files {
-        if k == "SegmentMetadata.bin" {
-            let sfiles = xvd.parse_segment_metadata(&mut file, v).await.expect("ok");
-            lfiles = sfiles;
-        }
-    }
-
-    if lfiles.is_empty() {
-        let sfiles = xvd
-            .parse_ntfs_segment_metadata(&mut file, !lfiles.is_empty())
-            .await
-            .expect("ok");
-        lfiles.extend(sfiles);
-    }
-
-    let license = get_license(
-        client,
-        tokens,
-        xvd.content_id().to_string(),
-        market.unwrap_or("neutral".to_string()),
-    )
-    .await;
-    if let Err(err) = license {
-        eprintln!("{}", err);
-        return ExitCode::FAILURE;
-    }
-    let (key, game_splicense) = license.unwrap();
-    if game_splicense.content_keys.len() != 1 {
-        eprintln!(
-            "unexpected number of content keys {}",
-            game_splicense.content_keys.len()
-        );
-        return ExitCode::FAILURE;
-    }
-    let Some((_, content_key)) = game_splicense.content_keys.into_iter().next() else {
-        return ExitCode::FAILURE;
-    };
-
-    let full_key = content_key.unpack(&key).expect("failed to unpack");
-
-    let title_id_str = xvd.content_id().to_string();
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let cache_dir = PathBuf::from(format!("{}/.cache/xodus/bin/{}", home, title_id_str));
-    tokio::fs::create_dir_all(&cache_dir).await.ok();
-
-    let cached_exe = cache_dir.join(&target_exe_name);
-
-    println!("Encrypted section infos count: {}", xvd.encrypted_section_infos.len());
-    for (i, s) in xvd.encrypted_section_infos.iter().enumerate() {
-        println!("  Section #{}: offset={}, length={}, data_units={:?}", i, s.section_offset, s.section_length, s.data_units.as_ref().map(|u| u.len()));
-    }
-
-    // Decrypt all .exe segments present in the package into cache_dir (preserving relative path structure)
     let mut decrypted_exes: Vec<(String, PathBuf)> = Vec::new();
-    for (k, sfile) in &lfiles {
-        let norm_k = k.replace('\\', "/");
-        if norm_k.to_ascii_lowercase().ends_with(".exe") {
-            let rel_path = norm_k.trim_start_matches('/').to_string();
-            let dest_exe = cache_dir.join(&rel_path);
-            if let Some(parent) = dest_exe.parent() {
-                let _ = tokio::fs::create_dir_all(parent).await;
+    let mut primary_title_id_str = parsed_title_id.clone().unwrap_or_default();
+
+    for final_path in &container_paths {
+        println!("Found XVD/MSIXVC container: {:?}", final_path);
+        let mut file = match OpenOptions::new().read(true).open(final_path.to_owned()).await {
+            Ok(f) => f,
+            Err(e) => {
+                println!("Failed to open container {:?}: {}", final_path, e);
+                continue;
             }
-            let should_extract = !dest_exe.exists() || std::fs::metadata(&dest_exe).map(|m| m.len() == 0).unwrap_or(true);
-            if should_extract {
-                println!("Decrypting executable segment {}: length={}", rel_path, sfile.length);
-                match File::create(&dest_exe).await {
-                    Ok(mut out_f) => {
-                        let mut resolved_src = None;
-                        let mut current = content_dir.clone();
-                        let parts: Vec<&str> = rel_path.split('/').collect();
-                        let mut found_all = true;
-                        for part in parts {
-                            let mut found_part = false;
-                            if let Ok(entries) = std::fs::read_dir(&current) {
-                                for entry in entries.flatten() {
-                                    if entry.file_name().to_string_lossy().to_lowercase() == part.to_lowercase() {
-                                        current = current.join(entry.file_name());
-                                        found_part = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if !found_part {
-                                found_all = false;
-                                break;
-                            }
-                        }
-                        if found_all {
-                            resolved_src = Some(current.clone());
-                            println!("Resolved path: {:?}", current);
-                        } else {
-                            println!("Failed to resolve path for: {}", rel_path);
-                        }
-                        
-                        if let Some(full_src) = resolved_src {
-                            println!("Opening full_src: {:?}", full_src);
-                            match File::open(&full_src).await {
-                                Ok(mut src_f) => {
-                                    println!("Successfully opened full_src");
-                                    if let Err(e) = xvd.mount_mem_fd(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
-                                        println!("Extract error: {}", e);
-                                    }
-                                }
-                                Err(e) => {
-                                    println!("Failed to open full_src: {}", e);
-                                }
-                            }
-                        } else {
-                            println!("Opening final_path fallback");
-                            if let Ok(mut src_f) = File::open(&final_path).await {
-                                if let Err(e) = xvd.extract_file(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
-                                    println!("Extract error: {}", e);
-                                }
-                            }
-                        }
-                        use tokio::io::AsyncWriteExt;
-                        out_f.flush().await.ok();
-                    }
-                    Err(e) => {
-                        println!("Failed to create dest_exe {:?}: {}", dest_exe, e);
+        };
+
+        let xvd = match XvdFile::parse(&mut file).await {
+            Ok(x) => x,
+            Err(e) => {
+                println!("Failed to parse XVD header in {:?}: {}", final_path, e);
+                continue;
+            }
+        };
+
+        let mut cont_lfiles: HashMap<String, SegmentFile> = HashMap::new();
+        if let Ok(files) = xvd.parse_user_package_files(&mut file).await {
+            for (k, v) in &files {
+                if k == "SegmentMetadata.bin" {
+                    if let Ok(sfiles) = xvd.parse_segment_metadata(&mut file, v).await {
+                        cont_lfiles = sfiles;
                     }
                 }
             }
-            decrypted_exes.push((rel_path, dest_exe));
+        }
+
+        if cont_lfiles.is_empty() {
+            if let Ok(sfiles) = xvd.parse_ntfs_segment_metadata(&mut file, !cont_lfiles.is_empty()).await {
+                cont_lfiles.extend(sfiles);
+            }
+        }
+
+        let cid = xvd.content_id().to_string();
+        if primary_title_id_str.is_empty() {
+            primary_title_id_str = cid.clone();
+        }
+
+        let cache_dir = PathBuf::from(format!("{}/.cache/xodus/bin/{}", home, primary_title_id_str));
+        tokio::fs::create_dir_all(&cache_dir).await.ok();
+
+        let license = get_license(
+            client,
+            tokens,
+            cid.clone(),
+            market.clone().unwrap_or("neutral".to_string()),
+        ).await;
+
+        let full_key = match license {
+            Ok((key, game_splicense)) => {
+                if let Some((_, content_key)) = game_splicense.content_keys.into_iter().next() {
+                    match content_key.unpack(&key) {
+                        Ok(k) => k,
+                        Err(e) => {
+                            println!("Failed to unpack content key for {}: {}", cid, e);
+                            continue;
+                        }
+                    }
+                } else {
+                    println!("No content keys found for {}", cid);
+                    continue;
+                }
+            }
+            Err(e) => {
+                println!("Failed to get license for container {}: {}", cid, e);
+                continue;
+            }
+        };
+
+        println!("Encrypted section infos count in {}: {}", cid, xvd.encrypted_section_infos.len());
+        for (i, s) in xvd.encrypted_section_infos.iter().enumerate() {
+            println!("  Section #{}: offset={}, length={}, data_units={:?}", i, s.section_offset, s.section_length, s.data_units.as_ref().map(|u| u.len()));
+        }
+
+        // Decrypt all .exe segments present in this package into cache_dir
+        for (k, sfile) in &cont_lfiles {
+            let norm_k = k.replace('\\', "/");
+            if norm_k.to_ascii_lowercase().ends_with(".exe") {
+                let rel_path = norm_k.trim_start_matches('/').to_string();
+                let dest_exe = cache_dir.join(&rel_path);
+                if let Some(parent) = dest_exe.parent() {
+                    let _ = tokio::fs::create_dir_all(parent).await;
+                }
+                let should_extract = !dest_exe.exists() || std::fs::metadata(&dest_exe).map(|m| m.len() == 0).unwrap_or(true);
+                if should_extract {
+                    println!("Decrypting executable segment {} from package {}: length={}", rel_path, cid, sfile.length);
+                    match File::create(&dest_exe).await {
+                        Ok(mut out_f) => {
+                            let mut resolved_src = None;
+                            let mut current = content_dir.clone();
+                            let parts: Vec<&str> = rel_path.split('/').collect();
+                            let mut found_all = true;
+                            for part in parts {
+                                let mut found_part = false;
+                                if let Ok(entries) = std::fs::read_dir(&current) {
+                                    for entry in entries.flatten() {
+                                        if entry.file_name().to_string_lossy().to_lowercase() == part.to_lowercase() {
+                                            current = current.join(entry.file_name());
+                                            found_part = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if !found_part {
+                                    found_all = false;
+                                    break;
+                                }
+                            }
+                            if found_all {
+                                resolved_src = Some(current.clone());
+                                println!("Resolved path: {:?}", current);
+                            } else {
+                                println!("Failed to resolve path for: {}", rel_path);
+                            }
+
+                            if let Some(full_src) = resolved_src {
+                                println!("Opening full_src: {:?}", full_src);
+                                match File::open(&full_src).await {
+                                    Ok(mut src_f) => {
+                                        println!("Successfully opened full_src");
+                                        if let Err(e) = xvd.mount_mem_fd(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
+                                            println!("Extract error: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("Failed to open full_src: {}", e);
+                                    }
+                                }
+                            } else {
+                                println!("Opening final_path fallback");
+                                if let Ok(mut src_f) = File::open(final_path).await {
+                                    if let Err(e) = xvd.extract_file(&mut src_f, &mut out_f, sfile, *full_key, |_, _| {}).await {
+                                        println!("Extract error: {}", e);
+                                    }
+                                }
+                            }
+                            use tokio::io::AsyncWriteExt;
+                            out_f.flush().await.ok();
+                        }
+                        Err(e) => {
+                            println!("Failed to create dest_exe {:?}: {}", dest_exe, e);
+                        }
+                    }
+                }
+                if !decrypted_exes.iter().any(|(r, _)| r.eq_ignore_ascii_case(&rel_path)) {
+                    decrypted_exes.push((rel_path, dest_exe));
+                }
+            }
         }
     }
+
+    let title_id_str = if !primary_title_id_str.is_empty() {
+        primary_title_id_str
+    } else {
+        parsed_title_id.clone().unwrap_or_else(|| "game".to_string())
+    };
+    let cache_dir = PathBuf::from(format!("{}/.cache/xodus/bin/{}", home, title_id_str));
+    let cached_exe = cache_dir.join(&target_exe_name);
 
     let run_dir = PathBuf::from(format!("{}/.cache/xodus/run/{}", home, title_id_str));
     tokio::fs::create_dir_all(&run_dir).await.ok();
@@ -861,7 +949,7 @@ pub async fn run(
     } else {
         default_runtime_dir
     };
-    let dll_names = ["xgameruntime.dll", "twinapi.appcore.dll", "api-ms-win-core-psm-appnotify-l1-1-0.dll", "xgameruntime.dll.so", "twinapi.appcore.dll.so"];
+    let dll_names = ["xgameruntime.dll", "twinapi.appcore.dll", "api-ms-win-core-psm-appnotify-l1-1-0.dll", "Microsoft.WindowsAppRuntime.Bootstrap.dll", "xgameruntime.dll.so", "twinapi.appcore.dll.so"];
     for dll in &dll_names {
         let src_dll = Path::new(&runtime_dir).join(dll);
         if src_dll.exists() {
@@ -970,6 +1058,32 @@ pub async fn run(
         })
         .or_else(|| Some(PathBuf::from("/usr/lib/xodus/api-ms-win-core-psm-appnotify-l1-1-0.dll")).filter(|p| p.exists()));
 
+    let textinput_dll = Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/windows.ui.core.textinput.dll"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            std::env::var("XODUS_RUNTIME_PATH")
+                .ok()
+                .map(|p| PathBuf::from(p).join("windows.ui.core.textinput.dll"))
+                .filter(|p| p.exists())
+        })
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib/windows.ui.core.textinput.dll"))).filter(|p| p.exists())
+        })
+        .or_else(|| Some(PathBuf::from("/usr/lib/xodus/windows.ui.core.textinput.dll")).filter(|p| p.exists()));
+
+    let wintypes_dll = Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/wintypes.dll"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            std::env::var("XODUS_RUNTIME_PATH")
+                .ok()
+                .map(|p| PathBuf::from(p).join("wintypes.dll"))
+                .filter(|p| p.exists())
+        })
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib/wintypes.dll"))).filter(|p| p.exists())
+        })
+        .or_else(|| Some(PathBuf::from("/usr/lib/xodus/wintypes.dll")).filter(|p| p.exists()));
+
     let target_sub_dirs = [
         run_dir.clone(),
         cached_exe.parent().unwrap_or(&run_dir).to_path_buf(),
@@ -1008,6 +1122,36 @@ pub async fn run(
                     let _ = tokio::fs::remove_file(&target_twinapi_short_so).await;
                     let _ = tokio::fs::copy(&twinapi_so, &target_twinapi_so).await;
                     let _ = tokio::fs::copy(&twinapi_so, &target_twinapi_short_so).await;
+                }
+            }
+            if let Some(ref textinput) = textinput_dll {
+                let target_textinput = dir.join("windows.ui.core.textinput.dll");
+                let _ = tokio::fs::remove_file(&target_textinput).await;
+                let _ = tokio::fs::copy(textinput, &target_textinput).await;
+
+                let textinput_so = textinput.with_extension("dll.so");
+                if textinput_so.exists() {
+                    let target_textinput_so = dir.join("windows.ui.core.textinput.dll.so");
+                    let target_textinput_short_so = dir.join("windows.ui.core.textinput.so");
+                    let _ = tokio::fs::remove_file(&target_textinput_so).await;
+                    let _ = tokio::fs::remove_file(&target_textinput_short_so).await;
+                    let _ = tokio::fs::copy(&textinput_so, &target_textinput_so).await;
+                    let _ = tokio::fs::copy(&textinput_so, &target_textinput_short_so).await;
+                }
+            }
+            if let Some(ref wintypes) = wintypes_dll {
+                let target_wintypes = dir.join("wintypes.dll");
+                let _ = tokio::fs::remove_file(&target_wintypes).await;
+                let _ = tokio::fs::copy(wintypes, &target_wintypes).await;
+
+                let wintypes_so = wintypes.with_extension("dll.so");
+                if wintypes_so.exists() {
+                    let target_wintypes_so = dir.join("wintypes.dll.so");
+                    let target_wintypes_short_so = dir.join("wintypes.so");
+                    let _ = tokio::fs::remove_file(&target_wintypes_so).await;
+                    let _ = tokio::fs::remove_file(&target_wintypes_short_so).await;
+                    let _ = tokio::fs::copy(&wintypes_so, &target_wintypes_so).await;
+                    let _ = tokio::fs::copy(&wintypes_so, &target_wintypes_short_so).await;
                 }
             }
             if let Some(ref appnotify) = appnotify_dll {
@@ -1072,10 +1216,94 @@ pub async fn run(
                     let _ = tokio::fs::copy(&twinapi_so, system32.join("twinapi.appcore.so")).await;
                 }
             }
+            if let Some(ref textinput) = textinput_dll {
+                let dst = system32.join("windows.ui.core.textinput.dll");
+                let _ = tokio::fs::remove_file(&dst).await;
+                let _ = tokio::fs::copy(textinput, &dst).await;
+                let textinput_so = textinput.with_extension("dll.so");
+                if textinput_so.exists() {
+                    let _ = tokio::fs::copy(&textinput_so, system32.join("windows.ui.core.textinput.dll.so")).await;
+                    let _ = tokio::fs::copy(&textinput_so, system32.join("windows.ui.core.textinput.so")).await;
+                }
+            }
+            if let Some(ref wintypes) = wintypes_dll {
+                let dst = system32.join("wintypes.dll");
+                let _ = tokio::fs::remove_file(&dst).await;
+                let _ = tokio::fs::copy(wintypes, &dst).await;
+                let wintypes_so = wintypes.with_extension("dll.so");
+                if wintypes_so.exists() {
+                    let _ = tokio::fs::copy(&wintypes_so, system32.join("wintypes.dll.so")).await;
+                    let _ = tokio::fs::copy(&wintypes_so, system32.join("wintypes.so")).await;
+                }
+            }
             if let Some(ref appnotify) = appnotify_dll {
                 let dst = system32.join("api-ms-win-core-psm-appnotify-l1-1-0.dll");
                 let _ = tokio::fs::remove_file(&dst).await;
                 let _ = tokio::fs::copy(appnotify, dst).await;
+            }
+        }
+
+        let pfx = compat_data.join("pfx");
+        let system_reg = pfx.join("system.reg");
+        if system_reg.exists() {
+            if let Ok(mut content) = std::fs::read_to_string(&system_reg) {
+                let classes = [
+                    "Windows.Foundation.Metadata.ApiInformation",
+                    "Windows.ApplicationModel.AppService.AppServiceConnection",
+                    "Windows.ApplicationModel.Package",
+                    "Windows.ApplicationModel.DataTransfer.DataTransferManager",
+                    "Windows.ApplicationModel.DataTransfer.Clipboard",
+                    "Windows.UI.Text.Core.CoreTextServicesManager",
+                    "Windows.System.Profile.AnalyticsInfo",
+                    "Windows.System.Profile.PlatformDiagnosticsAndUsageDataSettings",
+                    "Windows.Graphics.Display.DisplayInformation",
+                    "Windows.UI.ViewManagement.UIViewSettings",
+                    "Windows.UI.ViewManagement.ApplicationView",
+                    "Windows.UI.ViewManagement.InputPane",
+                    "Windows.UI.ViewManagement.StatusBar",
+                    "Windows.UI.ViewManagement.Core.CoreInputView",
+                    "Windows.Gaming.Input.Gamepad",
+                    "Windows.Gaming.Input.RawGameController",
+                    "Windows.Gaming.Preview.GamesEnumeration.GameList",
+                    "Windows.ApplicationModel.Core.CoreApplication",
+                    "Windows.UI.Core.CoreWindow",
+                    "Windows.Devices.Geolocation.Geolocator",
+                    "Windows.Devices.Enumeration.DeviceInformation",
+                    "Windows.Storage.StorageFolder",
+                    "Windows.Storage.ApplicationData",
+                    "Windows.Storage.StorageFile",
+                    "Windows.Security.Credentials.PasswordVault",
+                    "Windows.Networking.Connectivity.NetworkInformation",
+                ];
+                let mut modified = false;
+                for class_id in classes {
+                    let key = format!("[Software\\\\Microsoft\\\\WindowsRuntime\\\\ActivatableClassId\\\\{}]", class_id);
+                    let wow_key = format!("[Software\\\\Wow6432Node\\\\Microsoft\\\\WindowsRuntime\\\\ActivatableClassId\\\\{}]", class_id);
+                    for k in [&key, &wow_key] {
+                        if let Some(pos) = content.find(k) {
+                            let section_end = content[pos..].find("\n[").map(|p| pos + p).unwrap_or(content.len());
+                            let section = &content[pos..section_end];
+                            if let Some(dll_pos) = section.find("\"DllPath\"=") {
+                                let abs_dll_pos = pos + dll_pos;
+                                let line_end = content[abs_dll_pos..].find('\n').map(|p| abs_dll_pos + p).unwrap_or(content.len());
+                                let target_line = "\"DllPath\"=\"C:\\\\windows\\\\system32\\\\xgameruntime.dll\"";
+                                if &content[abs_dll_pos..line_end] != target_line {
+                                    content.replace_range(abs_dll_pos..line_end, target_line);
+                                    modified = true;
+                                }
+                            }
+                        } else {
+                            content.push_str(&format!(
+                                "\n{} 1786972207\n#time=1dd2e49b9a3f2ea\n\"ActivationType\"=dword:00000000\n\"DllPath\"=\"C:\\\\windows\\\\system32\\\\xgameruntime.dll\"\n\"Threading\"=dword:00000000\n",
+                                k
+                            ));
+                            modified = true;
+                        }
+                    }
+                }
+                if modified {
+                    let _ = std::fs::write(&system_reg, content);
+                }
             }
         }
 
@@ -1090,7 +1318,7 @@ pub async fn run(
            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", format!("{}/.local/share/Steam", home))
            .env("STEAM_COMPAT_DATA_PATH", &compat_data)
            .env("PROTON_LOG", "1")
-           .env("WINEDEBUG", "+gdkc,+xgameruntime")
+           .env("WINEDEBUG", "+gdkc,+xgameruntime,+winhttp,+wininet,+schannel,+secur32")
            .env("WINEDLLPATH", &wine_dll_path);
 
         // Wire in Proton's native Linux EAC runtime if available.
@@ -1114,7 +1342,7 @@ pub async fn run(
         }
         // Standard DLL overrides — don't touch EAC DLLs, let EAC use its own Windows-side logic
         cmd.env("WINEDLLOVERRIDES",
-            "xgameruntime=n,b;twinapi.appcore=n,b;api-ms-win-core-psm-appnotify-l1-1-0=n,b;\
+            "xgameruntime=n,b;twinapi.appcore=n,b;windows.ui.core.textinput=n,b;wintypes=n,b;api-ms-win-core-psm-appnotify-l1-1-0=n,b;\
              steamclient=;steamclient64=;steam_api=;steam_api64=;\
              GameOverlayRenderer=;GameOverlayRenderer64=");
 

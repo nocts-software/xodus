@@ -21,6 +21,9 @@
 > [!CAUTION]
 > **Unofficial Project Notice**: Xodus is an independent, open-source project and is not affiliated with, endorsed by, or sponsored by Microsoft Corporation or Xbox. All trademarks, product names, and logos are property of their respective owners.
 
+> [!WARNING]
+> **Current Project Status**: Right now, support is there for many single-player games to be downloaded and played successfully. However, online multiplayer games and features that require connecting to Microsoft servers (such as Minecraft online services) do not currently connect or authenticate successfully. This is an active area of development.
+
 ---
 
 ## 🌟 Overview

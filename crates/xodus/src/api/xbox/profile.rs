@@ -96,3 +96,40 @@ pub async fn get_user_profile(
     }
     Ok(None)
 }
+
+/// Fetch real gamer picture from Xbox Live CDN and cache locally
+pub async fn fetch_or_cache_gamer_picture(
+    client: &reqwest::Client,
+    auth_header: &str,
+    xuid: &str,
+) -> Vec<u8> {
+    let cache_dir = std::env::var("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|_| std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+        .join("xodus/avatars");
+    let cache_path = cache_dir.join(format!("{}.png", xuid));
+
+    if let Ok(data) = std::fs::read(&cache_path) {
+        if !data.is_empty() {
+            return data;
+        }
+    }
+
+    if let Ok(Some(profile)) = get_user_profile(client, auth_header).await {
+        if !profile.display_pic.is_empty() {
+            if let Ok(resp) = client.get(&profile.display_pic).send().await {
+                if resp.status().is_success() {
+                    if let Ok(bytes) = resp.bytes().await {
+                        let vec = bytes.to_vec();
+                        let _ = std::fs::create_dir_all(&cache_dir);
+                        let _ = std::fs::write(&cache_path, &vec);
+                        return vec;
+                    }
+                }
+            }
+        }
+    }
+
+    vec![0x89, 0x50, 0x4E, 0x47]
+}

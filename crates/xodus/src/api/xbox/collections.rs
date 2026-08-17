@@ -1016,32 +1016,117 @@ mod tests {
                     println!("Athena with rp://athena.prod.msrareservices.com/ -> Status: {status}\nBody: {body}");
                 }
 
-                println!("\n=== DECODING ATHENA XSTS TOKEN CLAIMS ===");
-                let parts: Vec<&str> = auth_header.split(';').collect();
-                if let Some(token_part) = parts.last() {
-                    let jwt = token_part.trim();
-                    let jwt_parts: Vec<&str> = jwt.split('.').collect();
-                    if jwt_parts.len() >= 2 {
-                        use base64::Engine;
-                        if let Ok(payload_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(jwt_parts[1]) {
-                            use std::io::Read;
-                            let mut gz = flate2::read::GzDecoder::new(&payload_bytes[..]);
-                            let mut s = String::new();
-                            if gz.read_to_string(&mut s).is_ok() {
-                                println!("Decoded GZIP Claims:\n{}", s);
-                            } else {
-                                let mut def = flate2::read::DeflateDecoder::new(&payload_bytes[..]);
-                                if def.read_to_string(&mut s).is_ok() {
-                                    println!("Decoded Deflate Claims:\n{}", s);
-                                } else {
-                                    let mut zlib = flate2::read::ZlibDecoder::new(&payload_bytes[..]);
-                                    if zlib.read_to_string(&mut s).is_ok() {
-                                        println!("Decoded Zlib Claims:\n{}", s);
-                                    } else {
-                                        println!("Raw bytes len: {}", payload_bytes.len());
-                                    }
-                                }
-                            }
+                println!("\n=== DISPLAY CLAIMS IN TITLE TOKEN ===");
+                println!("Title token display claims: {:?}", title_tok.display_claims);
+
+                println!("\n=== TESTING PACKAGE IDENTITY PROPERTIES FOR TITLE AUTH ===");
+                let title_auth_url = "https://title.auth.xboxlive.com/title/authenticate";
+                
+                for (name, prop) in [
+                    ("With PackageFamilyName & Version", serde_json::json!({
+                        "ProofKey": auth.request_signer().get_proof_key(),
+                        "DeviceToken": dt.token,
+                        "TitleId": 1717113201,
+                        "PackageFamilyName": "Microsoft.SeaofThieves_8wekyb3d8bbwe",
+                        "TitleVersion": "2.150.9409.0"
+                    })),
+                    ("With PackageFullName", serde_json::json!({
+                        "ProofKey": auth.request_signer().get_proof_key(),
+                        "DeviceToken": dt.token,
+                        "TitleId": 1717113201,
+                        "PackageFullName": "Microsoft.SeaofThieves_2.150.9409.0_x64__8wekyb3d8bbwe"
+                    })),
+                    ("With AppId & Version", serde_json::json!({
+                        "ProofKey": auth.request_signer().get_proof_key(),
+                        "DeviceToken": dt.token,
+                        "TitleId": 1717113201,
+                        "AppId": "Microsoft.SeaofThieves",
+                        "Version": "2.150.9409.0"
+                    })),
+                    ("With PackageFamilyName only", serde_json::json!({
+                        "ProofKey": auth.request_signer().get_proof_key(),
+                        "DeviceToken": dt.token,
+                        "TitleId": 1717113201,
+                        "PackageFamilyName": "Microsoft.SeaofThieves_8wekyb3d8bbwe"
+                    })),
+                ] {
+                    let req_body = serde_json::json!({
+                        "RelyingParty": "http://auth.xboxlive.com",
+                        "TokenType": "JWT",
+                        "Properties": prop
+                    });
+                    let body_bytes = serde_json::to_vec(&req_body).unwrap();
+                    let now = chrono::Utc::now();
+                    let filetime_val = (now.timestamp() + 11644473600) * 10000000 + (now.timestamp_subsec_nanos() as i64 / 100);
+                    let filetime_bytes = filetime_val.to_be_bytes();
+                    let version_bytes = 1i32.to_be_bytes();
+
+                    let prehash = xal::RequestSigner::prehash_message_data(
+                        &version_bytes,
+                        &filetime_bytes,
+                        "POST",
+                        "/title/authenticate",
+                        "",
+                        &body_bytes,
+                        8192,
+                    );
+                    let signing_key: p256::ecdsa::SigningKey = auth.request_signer().keypair.clone().into();
+                    use p256::ecdsa::signature::hazmat::PrehashSigner;
+                    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&prehash).unwrap();
+                    let mut sig_bytes = Vec::new();
+                    sig_bytes.extend_from_slice(&version_bytes);
+                    sig_bytes.extend_from_slice(&filetime_bytes);
+                    sig_bytes.extend_from_slice(&signature.to_bytes());
+                    let sig_b64 = base64::engine::general_purpose::STANDARD.encode(&sig_bytes);
+
+                    let resp = client.post(title_auth_url)
+                        .header("x-xbl-contract-version", "1")
+                        .header("Signature", sig_b64)
+                        .header("Content-Type", "application/json")
+                        .body(body_bytes)
+                        .send()
+                        .await;
+                    if let Ok(r) = resp {
+                        let status = r.status();
+                        let body = r.text().await.unwrap_or_default();
+                        println!("Package Identity Test '{name}' -> Status: {status}, Body: {body}");
+                    }
+                }
+
+                println!("\n=== TESTING ATHENA LOGIN WITH ATHENA-SPECIFIC MULTI-CLAIM TOKEN ===");
+                let athena_xsts = auth.get_xsts_token(
+                    Some(&dt),
+                    Some(&title_tok),
+                    Some(&xal_user),
+                    "rp://athena.prod.msrareservices.com/",
+                ).await;
+                println!("Athena XSTS acquisition result: {:?}", athena_xsts.is_ok());
+                if let Ok(xsts) = athena_xsts {
+                    let uhs = xsts.display_claims.as_ref()
+                        .and_then(|dc| dc.xui.first())
+                        .and_then(|m| m.get("uhs"))
+                        .cloned()
+                        .unwrap_or_default();
+                    let athena_auth_header = format!("XBL3.0 x={uhs};{}", xsts.token);
+                    println!("Generated Athena Auth Header (length {}), uhs='{}'", athena_auth_header.len(), uhs);
+
+                    let ares_login_url = "https://stamp3-fd.prod.athena.msrareservices.com/ares/login/api/token/client";
+                    for (name, body) in [
+                        ("Empty JSON", serde_json::json!({})),
+                        ("Version in body", serde_json::json!({"version": "2.150.9409.0"})),
+                        ("Version .4 in body", serde_json::json!({"version": "2.150.9409.4"})),
+                    ] {
+                        let resp = client.post(ares_login_url)
+                            .header("Authorization", &athena_auth_header)
+                            .header("User-Agent", "Athena/2.150.9409.0 (WinGDK; Windows 10.0.19045.0)")
+                            .header("Content-Type", "application/json")
+                            .json(&body)
+                            .send()
+                            .await;
+                        if let Ok(r) = resp {
+                            let status = r.status();
+                            let text = r.text().await.unwrap_or_default();
+                            println!("Athena Login with REAL Athena XSTS token '{name}' -> Status: {status}, Body: {text}");
                         }
                     }
                 }

@@ -20,7 +20,23 @@ pub async fn get_license_content(
     content_id: String,
     market: String,
 ) -> Result<(LicenseContentResponse, License), Box<dyn std::error::Error + Send + Sync>> {
+    let (res, lic) = get_license_content_ex(client, device_ms_token, user_ms_token, ticket_reference, content_id, market, true).await?;
+    let lic = lic.ok_or_else(|| "No license XML found in response".to_string())?;
+    Ok((res, lic))
+}
+
+pub async fn get_license_content_ex(
+    client: &reqwest::Client,
+    device_ms_token: String,
+    user_ms_token: String,
+    ticket_reference: String,
+    content_id: String,
+    market: String,
+    key_only: bool,
+) -> Result<(LicenseContentResponse, Option<License>), Box<dyn std::error::Error + Send + Sync>> {
     let cv = CorrelationVector::new();
+    let start = std::time::Instant::now();
+    log::info!("[MS-LICENSING] POST https://licensing.mp.microsoft.com/v7.0/licenses/content for content_id='{}', market='{}', key_only={}", content_id, market, key_only);
     let response = client
         .post("https://licensing.mp.microsoft.com/v7.0/licenses/content")
         .header("from", "XboxLicenseManager")
@@ -34,7 +50,7 @@ pub async fn get_license_content(
             concurrency_mode: "Rude".into(),
             license_version: 4,
             need_key: true,
-            key_only: true,
+            key_only,
             device_context: DeviceContext::default(),
             users: HashMap::from_iter(
                 [(utils::generate_suid(),
@@ -48,23 +64,30 @@ pub async fn get_license_content(
         .send()
         .await?;
 
+    let elapsed = start.elapsed();
     let status = response.status();
+    log::info!("[MS-LICENSING] licensing.mp.microsoft.com responded: HTTP {} in {:.2?}", status, elapsed);
     if !status.is_success() {
         let err_body = response.text().await.unwrap_or_default();
+        log::error!("[MS-LICENSING] Licensing error response: HTTP {} - {}", status, err_body);
         return Err(format!("Microsoft Licensing Service denied access ({status}): {err_body}").into());
     }
 
     let content_res = response.json::<LicenseContentResponse>().await?;
-    if content_res.license.keys.is_empty() {
-        return Err(format!("No valid license found for content {content_id}. User is not entitled to this game.").into());
-    }
+    log::info!("[MS-LICENSING] License content response received: {} keys, {} leases in bundle",
+        content_res.license.keys.len(), content_res.license.leases.len());
 
-    let license_b64 = &content_res.license.keys[0].value;
-    let decoded_bytes = BASE64_STANDARD.decode(license_b64)
-        .map_err(|e| format!("Failed to decode license base64: {e}"))?;
-    let xml_str = String::from_utf8(decoded_bytes)
-        .map_err(|e| format!("Failed to parse license UTF-8: {e}"))?;
-    let license = quick_xml::de::from_str::<License>(&xml_str)
-        .map_err(|e| format!("Failed to deserialize license XML: {e}"))?;
+    let license = if let Some(key) = content_res.license.keys.first() {
+        let license_b64 = &key.value;
+        let decoded_bytes = BASE64_STANDARD.decode(license_b64)
+            .map_err(|e| format!("Failed to decode license base64: {e}"))?;
+        let xml_str = String::from_utf8(decoded_bytes)
+            .map_err(|e| format!("Failed to parse license UTF-8: {e}"))?;
+        Some(quick_xml::de::from_str::<License>(&xml_str)
+            .map_err(|e| format!("Failed to deserialize license XML: {e}"))?)
+    } else {
+        None
+    };
+
     Ok((content_res, license))
 }

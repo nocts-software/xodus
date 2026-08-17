@@ -14,7 +14,11 @@ use xodus_service::utils;
 async fn main() {
     xodus::secrets::init_secrets().expect("Failed to init keychain");
     let tokens = Arc::new(TokenManager::with_keychain_and_memory());
-    xodus::tokens::device::ensure_device_credentials(&reqwest::Client::new(), &tokens).await;
+    let init_client = reqwest::ClientBuilder::new()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default();
+    xodus::tokens::device::ensure_device_credentials(&init_client, &tokens).await;
     let xodus::models::secrets::Token::Legacy(device_token) =
         tokens.get_device_sts_token().unwrap()
     else {

@@ -6,6 +6,8 @@ pub async fn authenticate_xbox_user(
     client: &reqwest::Client,
     rps_ticket: String,
 ) -> reqwest::Result<XstsResponse> {
+    let start = std::time::Instant::now();
+    log::info!("[MS-AUTH] POST https://user.auth.xboxlive.com/user/authenticate (RPS Ticket length: {})", rps_ticket.len());
     let body = UserAuthRequest {
         relying_party: "http://auth.xboxlive.com".to_string(),
         token_type: "JWT".to_string(),
@@ -22,10 +24,15 @@ pub async fn authenticate_xbox_user(
         .header("x-xbl-contract-version", "1")
         .json(&body)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
 
-    resp.json().await
+    let elapsed = start.elapsed();
+    let status = resp.status();
+    log::info!("[MS-AUTH] user.auth.xboxlive.com responded: HTTP {} in {:.2?}", status, elapsed);
+    let resp = resp.error_for_status()?;
+    let parsed: XstsResponse = resp.json().await?;
+    log::info!("[MS-AUTH] user.auth.xboxlive.com success: UHS={:?}, NotAfter={}", parsed.user_hash(), parsed.not_after);
+    Ok(parsed)
 }
 
 pub async fn request_xsts_token(
@@ -33,6 +40,8 @@ pub async fn request_xsts_token(
     token: String,
     relying_party: &str,
 ) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    let start = std::time::Instant::now();
+    log::info!("[MS-AUTH] POST https://xsts.auth.xboxlive.com/xsts/authorize (Single-Token, RP: '{}')", relying_party);
     let body = XstsRequest {
         relying_party: Some(relying_party.to_string()),
         token_type: Some("JWT".to_string()),
@@ -54,17 +63,20 @@ pub async fn request_xsts_token(
         .send()
         .await?;
 
+    let elapsed = start.elapsed();
     let status = resp.status();
     let text = resp.text().await?;
+    log::info!("[MS-AUTH] xsts.auth.xboxlive.com responded: HTTP {} in {:.2?} (Body length: {} bytes)", status, elapsed, text.len());
     if !status.is_success() {
         log::warn!("[XSTS AUTH] Authorization failed for RP '{relying_party}': HTTP {status} - {text}");
         return Err(format!("XSTS HTTP {status}: {text}").into());
     }
 
     let xsts: XstsResponse = serde_json::from_str(&text).map_err(|e| {
-        log::error!("[XSTS AUTH] Failed to parse XSTS JSON: {e}");
+        log::error!("[XSTS AUTH] Failed to parse XSTS JSON: {e} (Raw: {text})");
         format!("XSTS JSON error: {e}")
     })?;
+    log::info!("[MS-AUTH] XSTS Authorized successfully: UHS={:?}, Expiration={}", xsts.user_hash(), xsts.not_after);
     Ok(xsts)
 }
 
@@ -75,6 +87,9 @@ pub async fn request_xsts_token_with_claims(
     title_token: Option<String>,
     relying_party: &str,
 ) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    let start = std::time::Instant::now();
+    log::info!("[MS-AUTH] POST https://xsts.auth.xboxlive.com/xsts/authorize (Multi-Claim, User: {}, Device: {}, Title: {}, RP: '{}')",
+        user_token.is_some(), device_token.is_some(), title_token.is_some(), relying_party);
     let body = XstsRequest {
         relying_party: Some(relying_party.to_string()),
         token_type: Some("JWT".to_string()),
@@ -96,17 +111,20 @@ pub async fn request_xsts_token_with_claims(
         .send()
         .await?;
 
+    let elapsed = start.elapsed();
     let status = resp.status();
     let text = resp.text().await?;
+    log::info!("[MS-AUTH] xsts.auth.xboxlive.com multi-claim responded: HTTP {} in {:.2?} (Body length: {} bytes)", status, elapsed, text.len());
     if !status.is_success() {
-        log::warn!("[XSTS AUTH] Authorization failed for RP '{relying_party}': HTTP {status} - {text}");
+        log::warn!("[XSTS AUTH] Multi-claim Authorization failed for RP '{relying_party}': HTTP {status} - {text}");
         return Err(format!("XSTS HTTP {status}: {text}").into());
     }
 
     let xsts: XstsResponse = serde_json::from_str(&text).map_err(|e| {
-        log::error!("[XSTS AUTH] Failed to parse XSTS JSON: {e}");
+        log::error!("[XSTS AUTH] Failed to parse multi-claim XSTS JSON: {e} (Raw: {text})");
         format!("XSTS JSON error: {e}")
     })?;
+    log::info!("[MS-AUTH] Multi-claim XSTS Authorized successfully: UHS={:?}, Expiration={}", xsts.user_hash(), xsts.not_after);
     Ok(xsts)
 }
 
@@ -119,32 +137,15 @@ pub fn sign_request(
 ) -> Option<String> {
     use p256::ecdsa::SigningKey;
     use p256::ecdsa::signature::hazmat::PrehashSigner;
-    use base64::Engine;
-
-    let signing_policy_version: i32 = 1;
-    let version_bytes = signing_policy_version.to_be_bytes();
-    let now = chrono::Utc::now();
-    let filetime_val = (now.timestamp() + 11644473600) * 10000000 + (now.timestamp_subsec_nanos() as i64 / 100);
-    let filetime_bytes = filetime_val.to_be_bytes();
-
-    let prehash = xal::RequestSigner::prehash_message_data(
-        &version_bytes,
-        &filetime_bytes,
+    signer.sign_raw_to_string(
+        1,
+        chrono::Utc::now(),
         method,
         path_and_query,
         auth_header,
         body,
-        0,
-    );
-
-    let signing_key: SigningKey = signer.keypair.clone().into();
-    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&prehash).ok()?;
-
-    let mut sig_bytes = Vec::new();
-    sig_bytes.extend_from_slice(&version_bytes);
-    sig_bytes.extend_from_slice(&filetime_bytes);
-    sig_bytes.extend_from_slice(&signature.to_bytes());
-    Some(base64::engine::general_purpose::STANDARD.encode(&sig_bytes))
+        8192,
+    ).ok()
 }
 
 pub fn sign_http_request(method: &str, raw_url: &str, auth_header: &str, body: &[u8]) -> Option<String> {

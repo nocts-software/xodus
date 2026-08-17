@@ -48,6 +48,8 @@ pub struct XuiClaim {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct XtiClaim {
     pub tid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tvr: Option<String>,
 }
 
 impl XstsResponse {
