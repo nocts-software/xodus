@@ -78,18 +78,34 @@ pub async fn run_with_title(
     legacy: LegacyToken,
     title_id: u32,
     relying_party: &str,
+    signer_opt: Option<xal::RequestSigner>,
 ) -> Result<XstsResponse, Box<dyn std::error::Error + Send + Sync>> {
-    let mut auth = xal::XalAuthenticator::new(
-        xal::XalAppParameters {
-            client_id: "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
-            title_id: Some(title_id.to_string()),
-            auth_scopes: vec![],
-            redirect_uri: None,
-            client_secret: None,
-        },
-        xal::client_params::CLIENT_WINDOWS(),
-        "RETAIL".to_string(),
-    );
+    let mut auth = if let Some(signer) = signer_opt {
+        xal::XalAuthenticator::with_signer(
+            xal::XalAppParameters {
+                client_id: "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+                title_id: Some(title_id.to_string()),
+                auth_scopes: vec![],
+                redirect_uri: None,
+                client_secret: None,
+            },
+            xal::client_params::CLIENT_WINDOWS(),
+            "RETAIL".to_string(),
+            signer,
+        )
+    } else {
+        xal::XalAuthenticator::new(
+            xal::XalAppParameters {
+                client_id: "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+                title_id: Some(title_id.to_string()),
+                auth_scopes: vec![],
+                redirect_uri: None,
+                client_secret: None,
+            },
+            xal::client_params::CLIENT_WINDOWS(),
+            "RETAIL".to_string(),
+        )
+    };
 
     log::info!("[MS-AUTH] Starting run_with_title: TitleID={}, RP='{}'", title_id, relying_party);
 
@@ -279,6 +295,10 @@ pub fn sign_request_for_rp(
             })
             .or_else(|| {
                 lock.values().next().cloned()
+            })
+            .or_else(|| {
+                let tokens = crate::tokens::TokenManager::with_keychain_and_memory();
+                Some(tokens.get_or_create_device_signer())
             })?
     };
     let path_and_query = if let Ok(url) = reqwest::Url::parse(raw_url) {
@@ -331,7 +351,8 @@ pub async fn get_or_request_xsts_for_title(
     let Token::Legacy(user_token) = tokens.get_user_sts_token()? else {
         return Err("User token is not legacy".into());
     };
-    let xsts = run_with_title(client, dev_token, user_token, title_id, relying_party).await?;
+    let signer = tokens.get_or_create_device_signer();
+    let xsts = run_with_title(client, dev_token, user_token, title_id, relying_party, Some(signer)).await?;
     tokens.cache_xsts(&cache_key, &xsts);
     Ok(xsts)
 }

@@ -12,6 +12,7 @@ mod keys {
     pub const DEVICE_TOKENS: &str = "device-tokens";
     pub const USER_TOKENS: &str = "user-tokens";
     pub const USER_INFO: &str = "user-DA";
+    pub const DEVICE_SIGNING_KEY: &str = "device-signing-key";
 }
 
 pub const PASSPORT_STS: &str = "http://Passport.NET/STS";
@@ -55,10 +56,16 @@ impl TokenManager {
         )
     }
 
-    pub fn remove_persistent(&self) -> Result<(), TokenStoreError> {
+    pub fn remove_all(&self) -> Result<(), TokenStoreError> {
+        self.persistent.remove(keys::DEV_LICENSE)?;
         self.persistent.remove(keys::DEVICE_TOKENS)?;
         self.persistent.remove(keys::USER_TOKENS)?;
-        self.persistent.remove(keys::USER_INFO)
+        self.persistent.remove(keys::USER_INFO)?;
+        self.persistent.remove(keys::DEVICE_SIGNING_KEY)
+    }
+
+    pub fn remove_persistent(&self) -> Result<(), TokenStoreError> {
+        self.remove_all()
     }
 
     // ---- Device identity / license -----------------------------------------
@@ -78,6 +85,37 @@ impl TokenManager {
 
     pub fn remove_device_license(&self) -> Result<(), TokenStoreError> {
         self.persistent.remove(keys::DEV_LICENSE)
+    }
+
+    // ---- Device Signing Key (ECDSA P-256) -----------------------------------
+
+    pub fn get_device_signing_key(&self) -> Result<[u8; 32], TokenStoreError> {
+        let bytes = self
+            .persistent
+            .get(keys::DEVICE_SIGNING_KEY)?
+            .ok_or(TokenStoreError::NotFound)?;
+        if bytes.len() == 32 {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            Ok(key)
+        } else {
+            Err(TokenStoreError::NotFound)
+        }
+    }
+
+    pub fn save_device_signing_key(&self, key: &[u8; 32]) -> Result<(), TokenStoreError> {
+        self.persistent.set(keys::DEVICE_SIGNING_KEY, key)
+    }
+
+    pub fn get_or_create_device_signer(&self) -> xal::RequestSigner {
+        if let Ok(key_bytes) = self.get_device_signing_key() {
+            if let Ok(signer) = xal::RequestSigner::from_secret_bytes(&key_bytes) {
+                return signer;
+            }
+        }
+        let signer = xal::RequestSigner::new();
+        let _ = self.save_device_signing_key(&signer.secret_bytes());
+        signer
     }
 
     // ---- Device STS tokens (keyed by SOAP "applies_to" address) -----------
