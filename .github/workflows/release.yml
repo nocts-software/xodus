@@ -189,9 +189,9 @@ EOF
           AUTH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Publishing Release to GitHub via REST API ==="
-          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || '' }}"
-          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "null" ]; then
-            TAG_NAME=$(git describe --tags --always 2>/dev/null || echo "v1.0.0")
+          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || github.ref_name || 'v1.0.0' }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "null" ] || [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME="v1.0.0"
           fi
           TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || '' }}"
           if [ -z "$TITLE" ] || [ "$TITLE" = "null" ]; then
@@ -218,9 +218,9 @@ EOF
           fi
           echo "GitHub Release ID: $RELEASE_ID"
 
-          # Upload single AppImage package
+          # Upload ONLY the single AppImage package
           if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
-            # Clean any old assets
+            # Clean any old/stale assets
             ALL_ASSETS=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets | jq -r '.[].id // empty')
             for aid in $ALL_ASSETS; do
               if [ -n "$aid" ] && [ "$aid" != "null" ]; then
@@ -228,16 +228,12 @@ EOF
               fi
             done
 
-            for file in dist/packages/*; do
-              [ -f "$file" ] || continue
-              filename=$(basename "$file")
-              echo "Uploading asset: $filename to release $RELEASE_ID..."
-              curl -s -X POST \
-                -H "Authorization: token ${AUTH_TOKEN}" \
-                -H "Content-Type: application/octet-stream" \
-                --data-binary @"$file" \
-                "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${filename}"
-            done
+            echo "Uploading strictly one asset: nocts-xodus-gui.AppImage to release $RELEASE_ID..."
+            curl -s -X POST \
+              -H "Authorization: token ${AUTH_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"dist/packages/nocts-xodus-gui.AppImage" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=nocts-xodus-gui.AppImage"
           fi
 
       - name: Dispatch Catalog Update to Central Releases Repo
