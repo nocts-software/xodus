@@ -130,9 +130,26 @@ fn parse_microsoft_game_config(content: &str) -> GameConfigInfo {
             if let Some(start) = trimmed.find("Name=\"") {
                 let rest = &trimmed[start + 6..];
                 if let Some(end) = rest.find('"') {
-                    let exe_name = &rest[..end];
+                    let mut exe_name = rest[..end].to_string();
+                    if let Some(alias_start) = trimmed.find("Alias=\"") {
+                        let alias_rest = &trimmed[alias_start + 7..];
+                        if let Some(alias_end) = alias_rest.find('"') {
+                            let alias_name = &alias_rest[..alias_end];
+                            if !alias_name.is_empty() && exe_name.to_ascii_lowercase().contains("launcher") {
+                                if let Some(parent) = Path::new(&exe_name).parent() {
+                                    if !parent.as_os_str().is_empty() {
+                                        exe_name = format!("{}/{}", parent.display(), alias_name);
+                                    } else {
+                                        exe_name = alias_name.to_string();
+                                    }
+                                } else {
+                                    exe_name = alias_name.to_string();
+                                }
+                            }
+                        }
+                    }
                     if !exe_name.eq_ignore_ascii_case("gamelaunchhelper.exe") {
-                        info.executable = Some(exe_name.to_string());
+                        info.executable = Some(exe_name);
                     }
                 }
             }
@@ -175,10 +192,25 @@ fn parse_microsoft_game_config(content: &str) -> GameConfigInfo {
 }
 
 async fn ensure_service_running() {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_ | "/tmp".to_string());
     let socket_path = format!("{}/xodus.sock", runtime_dir);
 
-    if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+    // If we have a game version set (launched via `xodus run`), we need to restart the service
+    // so it picks up XODUS_GAME_VERSION and XODUS_PACKAGE_FAMILY_NAME for TVR embedding.
+    // Otherwise a long-running service started before version detection won't have these vars.
+    let has_game_version = std::env::var("XODUS_GAME_VERSION").is_ok();
+    if has_game_version && tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+        // Service is running but might not have the game version env vars.
+        // Kill it so we can restart with the correct env vars.
+        log::info!("[XODUS-RUN] Restarting xodus-service to inject XODUS_GAME_VERSION={}", std::env::var("XODUS_GAME_VERSION").unwrap_or_default());
+        // Kill existing service by removing the socket and sending SIGTERM to any xodus-service processes
+        let _ = std::fs::remove_file(&socket_path);
+        let _ = tokio::process::Command::new("pkill")
+            .args(["-x", "xodus-service"])
+            .spawn();
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+    } else if !has_game_version && tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+        // Service is running and we don't need game-specific env vars (e.g., background tasks)
         return;
     }
 
@@ -228,10 +260,12 @@ async fn ensure_service_running() {
         cmd.env("RUST_LOG", "info,xodus=debug,xodus_service=debug");
         // Forward game version so the service can embed TitleVersion in the Xbox title token
         if let Ok(game_ver) = std::env::var("XODUS_GAME_VERSION") {
-            cmd.env("XODUS_GAME_VERSION", game_ver);
+            cmd.env("XODUS_GAME_VERSION", &game_ver);
+            log::info!("[XODUS-RUN] Starting xodus-service with XODUS_GAME_VERSION={}", game_ver);
         }
         if let Ok(pfn) = std::env::var("XODUS_PACKAGE_FAMILY_NAME") {
-            cmd.env("XODUS_PACKAGE_FAMILY_NAME", pfn);
+            cmd.env("XODUS_PACKAGE_FAMILY_NAME", &pfn);
+            log::info!("[XODUS-RUN] Starting xodus-service with XODUS_PACKAGE_FAMILY_NAME={}", pfn);
         }
         if let Some(ref f) = log_file {
             if let Ok(f_clone) = f.try_clone() {
@@ -261,7 +295,8 @@ pub async fn run(
     exe: Option<String>,
     market: Option<String>,
 ) -> ExitCode {
-    ensure_service_running().await;
+    // NOTE: ensure_service_running() is called AFTER AppxManifest parsing so that
+    // XODUS_GAME_VERSION and XODUS_PACKAGE_FAMILY_NAME are set before the service starts.
 
     let mut lfiles: HashMap<String, SegmentFile> = HashMap::new();
 
@@ -383,6 +418,10 @@ pub async fn run(
         }
     }
 
+    // Start (or reconnect to) the xodus-service NOW that XODUS_GAME_VERSION and
+    // XODUS_PACKAGE_FAMILY_NAME are set from the AppxManifest, so the service receives them.
+    ensure_service_running().await;
+
     // If exe is still none, search directory for main binary
     if exe.is_none() {
         if let Ok(entries) = std::fs::read_dir(&content_dir) {
@@ -400,7 +439,7 @@ pub async fn run(
         }
     }
 
-    let target_exe_name = exe.unwrap_or_else(|| "Game.exe".to_string());
+    let target_exe_name = exe.unwrap_or_else(|| "Game.exe".to_string()).replace('\\', "/");
     let target_exe_path = content_dir.join(&target_exe_name);
     println!("Target executable path: {:?}", target_exe_path);
 
@@ -805,6 +844,9 @@ pub async fn run(
     } 
 
     let game_binary_in_run = run_dir.join(&target_exe_name);
+    if let Some(parent) = game_binary_in_run.parent() {
+        tokio::fs::create_dir_all(parent).await.ok();
+    }
     if cached_exe.exists() {
         let _ = tokio::fs::remove_file(&game_binary_in_run).await;
         #[cfg(unix)]
@@ -920,6 +962,8 @@ pub async fn run(
     let target_sub_dirs = [
         run_dir.clone(),
         cached_exe.parent().unwrap_or(&run_dir).to_path_buf(),
+        game_binary_in_run.parent().unwrap_or(&run_dir).to_path_buf(),
+        run_dir.join("Retail"),
         run_dir.join("Athena").join("Binaries").join("WinGDK"),
     ];
 
