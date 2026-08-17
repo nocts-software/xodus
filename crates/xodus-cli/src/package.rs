@@ -7,12 +7,30 @@ use xodus::tokens::TokenManager;
 
 pub async fn get_content_id(
     client: &reqwest::Client,
+    tokens: &TokenManager,
     product: String,
     market: Option<String>,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let mut resolved_product = product.clone();
+
+    // If input is not a 12-character alphanumeric BigID, try searching user entitlements / catalog
+    if resolved_product.len() != 12 || !resolved_product.chars().all(|c| c.is_ascii_alphanumeric()) {
+        let mkt = market.clone().unwrap_or_else(|| "neutral".to_string());
+        if let Ok(owned) = xodus::api::xbox::collections::get_user_owned_catalog_items(client, tokens, &mkt).await {
+            let p_lower = resolved_product.to_lowercase();
+            if let Some(item) = owned.iter().find(|i| {
+                let t = i.title.to_lowercase();
+                t == p_lower || t.contains(&p_lower) || p_lower.contains(&t)
+            }) {
+                println!("[XODUS] Resolved game title '{}' -> Product ID: {} ('{}')", resolved_product, item.product_id, item.title);
+                resolved_product = item.product_id.clone();
+            }
+        }
+    }
+
     let displaycatalog = find_products_by_id(
         client,
-        product.clone(),
+        resolved_product.clone(),
         market.clone().unwrap_or("neutral".to_owned()),
         vec!["en".to_string(), "neutral".to_string()],
     )
@@ -83,13 +101,13 @@ pub async fn get_content_id(
                     .with_page_size(30)
                     .prompt()
                 {
-                    return Box::pin(get_content_id(client, item, market)).await;
+                    return Box::pin(get_content_id(client, tokens, item, market)).await;
                 }
             }
 
             // Fallback for non-interactive / GUI callers: try the first sub-product
             if let Some(first_sub) = subprods.first() {
-                return Box::pin(get_content_id(client, first_sub.clone(), market)).await;
+                return Box::pin(get_content_id(client, tokens, first_sub.clone(), market)).await;
             }
         }
 

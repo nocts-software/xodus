@@ -17,7 +17,7 @@ pub async fn run(
     market: Option<String>,
     dry_run: bool,
 ) -> ExitCode {
-    let content_id_task = get_content_id(client, product, market.clone()).await;
+    let content_id_task = get_content_id(client, tokens, product, market.clone()).await;
     let Ok(content_id) = content_id_task else {
         let Err(err) = content_id_task else {
             eprintln!("Unknown Error");
