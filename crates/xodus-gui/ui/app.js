@@ -1045,18 +1045,76 @@ window.pushSave = pushSave;
 window.joinFriendGame = joinFriendGame;
 window.switchTab = switchTab;
 
+function formatEta(seconds) {
+  if (!seconds || seconds <= 0 || !isFinite(seconds)) return 'Estimating time...';
+  if (seconds < 60) return `${Math.round(seconds)}s remaining`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  if (mins < 60) return `${mins}m ${secs}s remaining`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h ${remMins}m remaining`;
+}
+
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec || bytesPerSec <= 0 || !isFinite(bytesPerSec)) return '-- MB/s';
+  const mb = bytesPerSec / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB/s`;
+  const kb = bytesPerSec / 1024;
+  return `${kb.toFixed(0)} KB/s`;
+}
+
+function formatBytesJS(bytes) {
+  if (!bytes || bytes <= 0 || !isFinite(bytes)) return '0 B';
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  const kb = bytes / 1024;
+  return `${kb.toFixed(0)} KB`;
+}
+
 // Progress Bar
-function showProgress(title, percent, speed = '32.4 MB/s') {
+function showProgress(title, percent, speedText, stageText, bytesText, etaText, pkgText) {
   const bar = document.getElementById('statusBar');
+  if (!bar) return;
   bar.style.display = 'flex';
-  document.getElementById('statusTitle').textContent = title;
-  document.getElementById('statusSpeed').textContent = speed;
-  document.getElementById('progressBarFill').style.width = `${percent}%`;
+
+  const titleEl = document.getElementById('statusTitle');
+  if (titleEl) titleEl.textContent = title || 'Downloading Game';
+
+  const speedEl = document.getElementById('statusSpeed');
+  if (speedEl) speedEl.textContent = speedText || '-- MB/s';
+
+  const stageEl = document.getElementById('statusStage');
+  if (stageEl) stageEl.textContent = stageText || 'Downloading';
+
+  const pkgBadge = document.getElementById('statusPkgBadge');
+  if (pkgBadge) {
+    if (pkgText) {
+      pkgBadge.textContent = pkgText;
+      pkgBadge.style.display = 'inline-block';
+    } else {
+      pkgBadge.style.display = 'none';
+    }
+  }
+
+  const bytesEl = document.getElementById('statusBytes');
+  if (bytesEl) bytesEl.textContent = bytesText || `${Math.round(percent)}%`;
+
+  const etaEl = document.getElementById('statusEta');
+  if (etaEl) etaEl.textContent = etaText || 'Estimating time...';
+
+  const percentEl = document.getElementById('statusPercent');
+  if (percentEl) percentEl.textContent = `${Math.round(percent)}%`;
+
+  const fillEl = document.getElementById('progressBarFill');
+  if (fillEl) fillEl.style.width = `${Math.max(0, Math.min(100, percent))}%`;
 }
 
 function hideProgress() {
   const bar = document.getElementById('statusBar');
-  bar.style.display = 'none';
+  if (bar) bar.style.display = 'none';
 }
 
 function cancelActiveTask() {
@@ -1263,7 +1321,32 @@ function getEditionTier(title) {
   };
 
   window.updateDownloadProgress = (title, percent, speed) => {
-    showProgress(`Downloading ${title} via MSIXVC...`, percent, speed || '32.4 MB/s');
+    showProgress(title, percent, speed || '-- MB/s', 'Downloading', `${Math.round(percent)}%`, 'Estimating time...', '');
+  };
+
+  window.onDetailedDownloadProgress = (title, progress) => {
+    if (!progress) return;
+    const percent = typeof progress.percent === 'number' ? progress.percent : 0;
+    const speed = formatSpeed(progress.speed);
+    const eta = formatEta(progress.eta);
+    const stage = progress.stage || 'Streaming';
+    const bytesFormatted = (progress.total > 0)
+      ? `${formatBytesJS(progress.bytes)} / ${formatBytesJS(progress.total)}`
+      : `${formatBytesJS(progress.bytes)}`;
+    const pkgText = (progress.totalPackages && progress.totalPackages > 1)
+      ? `Component ${progress.packageIndex || 1}/${progress.totalPackages}`
+      : '';
+
+    showProgress(title, percent, speed, stage, bytesFormatted, eta, pkgText);
+
+    // Update state active download info
+    const game = state.games.find(g => g.title === title || g.title.toLowerCase().includes(title.toLowerCase()));
+    if (game) {
+      game.downloading = true;
+      game.downloadProgress = percent;
+      game.downloadSpeed = speed;
+      game.downloadEta = eta;
+    }
   };
 
   window.onInstallError = (title, msg) => {

@@ -324,14 +324,36 @@
 
     <!-- Active Process / Download Bottom Bar -->
     <div class="status-bar" id="statusBar" style="display: none;">
-      <div class="status-info">
-        <span class="status-title" id="statusTitle">Extracting package...</span>
-        <span class="status-speed" id="statusSpeed">24.5 MB/s</span>
+      <div class="status-icon-box">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" class="download-pulse-icon">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
       </div>
-      <div class="progress-bar-container">
-        <div class="progress-bar-fill" id="progressBarFill" style="width: 45%;"></div>
+      <div class="status-content">
+        <div class="status-header-row">
+          <div class="status-title-group">
+            <span class="status-game-title" id="statusTitle">Downloading Game</span>
+            <span class="status-badge-stage" id="statusStage">Downloading</span>
+            <span class="status-badge-pkg" id="statusPkgBadge" style="display: none;">Component 1/1</span>
+          </div>
+          <div class="status-stats-group">
+            <span class="status-metric-speed" id="statusSpeed">-- MB/s</span>
+            <span class="status-stat-sep">•</span>
+            <span class="status-metric-eta" id="statusEta">Estimating time...</span>
+            <span class="status-stat-sep">•</span>
+            <span class="status-metric-percent" id="statusPercent">0%</span>
+          </div>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+        </div>
+        <div class="status-footer-row">
+          <span class="status-metric-bytes" id="statusBytes">0 B / 0 B</span>
+          <span class="status-path-hint" id="statusDestPath">/mnt/w11/XboxGames</span>
+        </div>
       </div>
-      <span class="status-percent" id="statusPercent">45%</span>
     </div>
   </div>
 

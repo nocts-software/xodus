@@ -1565,23 +1565,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let cli_path = find_xodus_cli();
 
                                 for (i, pkg_target) in packages_to_install.iter().enumerate() {
-                                    let progress_pct = ((i as f64) / (total_pkgs as f64) * 80.0 + 10.0) as u32;
-                                    let script = format!(
-                                        "if (window.updateDownloadProgress) window.updateDownloadProgress('{}', {}, 'Streaming package {} of {} from Microsoft CDN...');",
+                                    let pkg_idx = i + 1;
+                                    let total_p = total_pkgs;
+                                    let initial_pct = ((i as f64) / (total_pkgs as f64) * 100.0) as u32;
+
+                                    let init_script = format!(
+                                        "if (window.updateDownloadProgress) window.updateDownloadProgress('{}', {}, 'Connecting to Microsoft Delivery Optimization (Package {} of {})...');",
                                         title.replace('\'', "\\'"),
-                                        progress_pct,
-                                        i + 1,
-                                        total_pkgs
+                                        initial_pct,
+                                        pkg_idx,
+                                        total_p
                                     );
-                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(init_script));
 
                                     let child = tokio::process::Command::new(&cli_path)
                                         .arg("streaming")
                                         .arg(pkg_target)
                                         .arg(&dest_dir)
+                                        .stdout(std::process::Stdio::piped())
+                                        .stderr(std::process::Stdio::piped())
                                         .spawn();
 
                                     if let Ok(mut c) = child {
+                                        if let Some(stdout) = c.stdout.take() {
+                                            let proxy_prog = proxy_tokio.clone();
+                                            let title_prog = title.clone();
+                                            tokio::spawn(async move {
+                                                use tokio::io::AsyncBufReadExt;
+                                                let mut reader = tokio::io::BufReader::new(stdout).lines();
+                                                while let Ok(Some(line)) = reader.next_line().await {
+                                                    if line.starts_with("PROGRESS:") {
+                                                        let json_str = &line["PROGRESS:".len()..];
+                                                        if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                                            if let Some(obj) = val.as_object_mut() {
+                                                                obj.insert("packageIndex".to_string(), serde_json::json!(pkg_idx));
+                                                                obj.insert("totalPackages".to_string(), serde_json::json!(total_p));
+                                                            }
+                                                            let script = format!(
+                                                                "if (window.onDetailedDownloadProgress) window.onDetailedDownloadProgress('{}', {});",
+                                                                title_prog.replace('\'', "\\'"),
+                                                                serde_json::to_string(&val).unwrap_or_default()
+                                                            );
+                                                            let _ = proxy_prog.send_event(CustomEvent::EvaluateScript(script));
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }
+
                                         let status = c.wait().await;
                                         if status.map(|s| s.success()).unwrap_or(false) {
                                             installed_success += 1;

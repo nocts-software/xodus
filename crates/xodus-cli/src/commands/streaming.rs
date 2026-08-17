@@ -303,6 +303,11 @@ where
         total_progess.set_message("Initializing");
         let mut bars: HashMap<usize, ProgressBar> = HashMap::new();
 
+        let mut last_emit = std::time::Instant::now();
+        let mut last_bytes = 0u64;
+        let mut smoothed_speed = 0.0f64;
+        let mut current_stage = "Initializing".to_string();
+
         while let Some(event) = rx.recv().await {
             match event {
                 ProgressEvent::Started { id, name, total } => {
@@ -325,12 +330,56 @@ where
                     }
                 }
                 ProgressEvent::UpdateRemaining { name, total } => {
+                    current_stage = name.clone();
                     total_progess.set_message(name);
                     total_progess.set_length(total_progess.position() + total);
                 }
                 ProgressEvent::UpdateStatus { name } => {
+                    current_stage = name.clone();
                     total_progess.set_message(name);
                 }
+            }
+
+            let cur_pos = total_progess.position();
+            let total_len = total_progess.length().unwrap_or(l);
+            let elapsed = last_emit.elapsed();
+
+            if elapsed.as_millis() >= 200 || (total_len > 0 && cur_pos >= total_len) {
+                let delta_b = if cur_pos >= last_bytes { cur_pos - last_bytes } else { 0 };
+                let dt_secs = elapsed.as_secs_f64();
+                if dt_secs > 0.0 {
+                    let inst_speed = delta_b as f64 / dt_secs;
+                    if smoothed_speed == 0.0 {
+                        smoothed_speed = inst_speed;
+                    } else {
+                        smoothed_speed = 0.75 * smoothed_speed + 0.25 * inst_speed;
+                    }
+                }
+                last_bytes = cur_pos;
+                last_emit = std::time::Instant::now();
+
+                let eta_secs = if smoothed_speed > 1024.0 && total_len > cur_pos {
+                    ((total_len - cur_pos) as f64 / smoothed_speed) as u64
+                } else {
+                    0
+                };
+                let pct = if total_len > 0 {
+                    (cur_pos as f64 / total_len as f64 * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+
+                println!(
+                    "PROGRESS:{{\"bytes\":{},\"total\":{},\"speed\":{},\"eta\":{},\"percent\":{:.2},\"stage\":\"{}\"}}",
+                    cur_pos,
+                    total_len,
+                    smoothed_speed as u64,
+                    eta_secs,
+                    pct,
+                    current_stage
+                );
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
             }
         }
 
