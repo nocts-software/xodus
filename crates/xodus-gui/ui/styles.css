@@ -1511,6 +1511,33 @@ body {
   margin-left: 8px;
 }
 
+.package-tag-installed {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(16, 124, 16, 0.25);
+  color: #52b788;
+  border: 1px solid rgba(16, 124, 16, 0.4);
+  margin-left: 8px;
+}
+
+.package-tag-addon {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #c5cbd5;
+  margin-left: 8px;
+}
+
+.package-item.is-installed-item {
+  border-left: 3px solid #107c10;
+}
+
 .install-desc-section {
   margin-bottom: 8px;
 }

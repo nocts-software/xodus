@@ -1521,12 +1521,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let dest_dir = format!("/mnt/w11/XboxGames/{}", safe_title.trim());
                                 let dest_path = std::path::Path::new(&dest_dir);
 
+                                let is_installed = has_game_files(dest_path);
+                                let pkgs_manifest_file = dest_path.join(".xodus_packages.json");
+                                let mut installed_pkg_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+                                if pkgs_manifest_file.exists() {
+                                    if let Ok(data) = std::fs::read_to_string(&pkgs_manifest_file) {
+                                        if let Ok(ids) = serde_json::from_str::<Vec<String>>(&data) {
+                                            installed_pkg_ids = ids.into_iter().collect();
+                                        }
+                                    }
+                                }
+
                                 let mut existing_bytes = 0u64;
                                 let mut is_resume = false;
                                 if dest_path.exists() && dest_path.is_dir() {
                                     existing_bytes = compute_dir_size(dest_path);
-                                    if existing_bytes > 5_000_000 && !has_game_files(dest_path) {
+                                    if existing_bytes > 5_000_000 && !is_installed {
                                         is_resume = true;
+                                    }
+                                }
+
+                                for p in &mut packages_json {
+                                    if let Some(obj) = p.as_object_mut() {
+                                        let pkg_id = obj.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                                        let is_req = obj.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
+                                        let is_pkg_inst = installed_pkg_ids.contains(&pkg_id) || (is_installed && is_req);
+                                        obj.insert("installed".to_string(), serde_json::json!(is_pkg_inst));
+                                        obj.insert("selected".to_string(), serde_json::json!(is_pkg_inst || !is_installed));
                                     }
                                 }
 
@@ -1541,6 +1563,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     "totalSizeFormatted": if total_bytes > 0 { format_bytes(total_bytes) } else { "Estimated ~15-45 GB".to_string() },
                                     "installPath": dest_dir,
                                     "packages": packages_json,
+                                    "isInstalled": is_installed,
                                     "isResume": is_resume,
                                     "existingBytes": existing_bytes,
                                     "existingFormatted": if existing_bytes > 0 { format_bytes(existing_bytes as i64) } else { "0 B".to_string() }
@@ -1653,6 +1676,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
 
                                 if installed_success > 0 || has_game_files(std::path::Path::new(&dest_dir)) {
+                                    let pkgs_manifest_file = std::path::Path::new(&dest_dir).join(".xodus_packages.json");
+                                    let mut active_pkgs = std::collections::HashSet::new();
+                                    if pkgs_manifest_file.exists() {
+                                        if let Ok(data) = std::fs::read_to_string(&pkgs_manifest_file) {
+                                            if let Ok(existing) = serde_json::from_str::<Vec<String>>(&data) {
+                                                active_pkgs.extend(existing);
+                                            }
+                                        }
+                                    }
+                                    active_pkgs.extend(packages_to_install.clone());
+                                    let active_list: Vec<String> = active_pkgs.into_iter().collect();
+                                    if let Ok(json_data) = serde_json::to_string(&active_list) {
+                                        let _ = std::fs::write(&pkgs_manifest_file, json_data);
+                                    }
+
                                     let script = format!(
                                         "if (window.onInstallComplete) window.onInstallComplete('{}', '{}');",
                                         title.replace('\'', "\\'"),

@@ -412,6 +412,26 @@ function updateHeroBanner(game) {
       actionsEl.appendChild(playBtn);
 
       const syncBtn = document.createElement('button');
+      const manageBtn = document.createElement('button');
+      manageBtn.className = 'btn btn-secondary btn-lg';
+      manageBtn.id = 'heroManageBtn';
+      manageBtn.title = `Modify packages & add-ons for ${gameTitle}`;
+      manageBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
+        </svg>
+        <span>Modify Packages</span>
+      `;
+      manageBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showInstallModal(game);
+      });
+      actionsEl.appendChild(manageBtn);
+
+      const syncBtn = document.createElement('button');
       syncBtn.className = 'btn btn-secondary btn-lg';
       syncBtn.id = 'heroSyncBtn';
       syncBtn.innerHTML = `
@@ -571,6 +591,23 @@ function renderGames() {
         launchGame(gameTitle, gamePath);
       });
       actionsDiv.appendChild(playBtn);
+
+      const manageCardBtn = document.createElement('button');
+      manageCardBtn.className = 'btn btn-secondary btn-sm';
+      manageCardBtn.title = 'Modify packages & DLCs';
+      manageCardBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
+        </svg>
+      `;
+      manageCardBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showInstallModal(game);
+      });
+      actionsDiv.appendChild(manageCardBtn);
     } else if (game.licenseType === 'gamepass' && state.hasGamePassSubscription === false) {
       const joinBtn = document.createElement('button');
       joinBtn.className = 'btn btn-secondary btn-sm';
@@ -844,6 +881,7 @@ window.showInstallModal = function(game) {
     productId: prodId,
     cover: game.cover || 'https://assets.xboxservices.com/assets/default_cover.png',
     developer: game.developer || 'Xbox Game Studios',
+    isGameInstalled: !!game.installed,
     packages: []
   };
 
@@ -856,18 +894,20 @@ window.showInstallModal = function(game) {
   const descEl = document.getElementById('installModalDesc');
   const pkgListEl = document.getElementById('installPackageList');
   const btnTextEl = document.getElementById('startInstallBtnText');
+  const tagEl = document.getElementById('installModalTag');
 
   if (titleEl) titleEl.textContent = safeTitle;
   if (devEl) devEl.textContent = `${game.developer || 'Xbox Game Studios'} • Windows PC`;
   if (coverEl) coverEl.src = game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
+  if (tagEl) tagEl.textContent = game.installed ? 'INSTALLED • MANAGE PACKAGES & ADD-ONS' : 'WINDOWS PC • MSIXVC';
   if (sizeEl) {
-    sizeEl.textContent = 'Calculating download size...';
+    sizeEl.textContent = 'Calculating package size...';
     sizeEl.classList.add('size-highlight');
   }
   if (pathEl) pathEl.textContent = defPath;
   if (descEl) descEl.textContent = 'Retrieving game overview and component manifest...';
   if (pkgListEl) pkgListEl.innerHTML = '<div style="color: #a0a0a0; font-size: 13px; padding: 10px 0;">Scanning available MSIXVC packages & DLCs...</div>';
-  if (btnTextEl) btnTextEl.textContent = 'Start Installation';
+  if (btnTextEl) btnTextEl.textContent = game.installed ? 'Modify Packages' : 'Start Installation';
 
   if (modal) {
     modal.classList.add('visible');
@@ -893,12 +933,14 @@ window.onInstallDetailsLoaded = function(details) {
   const coverEl = document.getElementById('installModalCover');
   const descEl = document.getElementById('installModalDesc');
   const pathEl = document.getElementById('installModalPath');
+  const tagEl = document.getElementById('installModalTag');
 
   if (titleEl && details.title) titleEl.textContent = details.title;
   if (devEl && details.developer) devEl.textContent = `${details.developer} • Windows PC`;
   if (coverEl && (details.heroImage || details.coverImage)) coverEl.src = details.heroImage || details.coverImage;
   if (descEl && details.description) descEl.textContent = details.description;
   if (pathEl && details.installPath) pathEl.textContent = details.installPath;
+  if (tagEl) tagEl.textContent = (details.isInstalled || state.pendingInstall.isGameInstalled) ? 'INSTALLED • MANAGE PACKAGES & ADD-ONS' : 'WINDOWS PC • MSIXVC';
 
   renderInstallPackages();
 };
@@ -909,6 +951,8 @@ function renderInstallPackages() {
   const btnTextEl = document.getElementById('startInstallBtnText');
   if (!pkgListEl || !state.pendingInstall || !state.pendingInstall.packages) return;
 
+  const isGameInstalled = !!state.pendingInstall.details?.isInstalled || !!state.pendingInstall.isGameInstalled;
+
   pkgListEl.innerHTML = '';
   let totalBytes = 0;
 
@@ -917,13 +961,23 @@ function renderInstallPackages() {
       totalBytes += (pkg.sizeBytes || 0);
     }
 
+    const isPkgInstalled = !!pkg.installed;
+    let tagHtml = '';
+    if (pkg.required) {
+      tagHtml = '<span class="package-tag-required">Required</span>';
+    } else if (isPkgInstalled) {
+      tagHtml = '<span class="package-tag-installed">Installed</span>';
+    } else {
+      tagHtml = '<span class="package-tag-addon">Add-on</span>';
+    }
+
     const item = document.createElement('div');
-    item.className = `package-item ${pkg.required ? 'disabled' : ''}`;
+    item.className = `package-item ${pkg.required ? 'disabled' : ''} ${isPkgInstalled ? 'is-installed-item' : ''}`;
     item.innerHTML = `
       <label class="package-item-left" style="cursor: ${pkg.required ? 'default' : 'pointer'};">
         <input type="checkbox" class="pkg-checkbox" ${pkg.selected ? 'checked' : ''} ${pkg.required ? 'disabled' : ''} data-index="${index}">
         <span>${pkg.name || 'Component'}</span>
-        ${pkg.required ? '<span class="package-tag-required">Required</span>' : ''}
+        ${tagHtml}
       </label>
       <span class="package-item-size">${pkg.sizeFormatted || 'Standard'}</span>
     `;
@@ -946,7 +1000,15 @@ function renderInstallPackages() {
   const existingBytes = state.pendingInstall.details?.existingBytes || 0;
 
   if (sizeEl) {
-    if (isResume && totalBytes > 0) {
+    if (isGameInstalled) {
+      const newlyChecked = state.pendingInstall.packages.filter(p => p.selected && !p.installed);
+      const addedBytes = newlyChecked.reduce((acc, p) => acc + (p.sizeBytes || 0), 0);
+      if (newlyChecked.length > 0) {
+        sizeEl.innerHTML = `${finalDisplaySize} <span style="font-size: 11px; color: #52b788; font-weight: 600; margin-left: 6px;">(+${formatBytesJS(addedBytes)} to add)</span>`;
+      } else {
+        sizeEl.innerHTML = `${finalDisplaySize} <span style="font-size: 11px; color: #52b788; font-weight: 600; margin-left: 6px;">(Installed)</span>`;
+      }
+    } else if (isResume && totalBytes > 0) {
       const remainingBytes = Math.max(0, totalBytes - existingBytes);
       sizeEl.innerHTML = `${finalDisplaySize} <span style="font-size: 11px; color: #52b788; font-weight: 600; margin-left: 6px;">(${existingFormatted} on disk, ${formatBytesJS(remainingBytes)} remaining)</span>`;
     } else {
@@ -956,7 +1018,15 @@ function renderInstallPackages() {
   }
 
   if (btnTextEl) {
-    if (isResume) {
+    if (isGameInstalled) {
+      const newlyChecked = state.pendingInstall.packages.filter(p => p.selected && !p.installed);
+      const addedBytes = newlyChecked.reduce((acc, p) => acc + (p.sizeBytes || 0), 0);
+      if (newlyChecked.length > 0) {
+        btnTextEl.textContent = `Install Selected Add-ons (+${formatBytesJS(addedBytes)})`;
+      } else {
+        btnTextEl.textContent = 'All Selected Packages Installed (Close)';
+      }
+    } else if (isResume) {
       const remainingBytes = Math.max(0, totalBytes - existingBytes);
       btnTextEl.textContent = remainingBytes > 0 ? `Resume Download (${formatBytesJS(remainingBytes)} remaining)` : 'Verify & Resume Download';
     } else {
@@ -985,10 +1055,29 @@ window.closeInstallModal = function() {
 
 window.confirmStartInstall = function() {
   if (!state.pendingInstall) return;
-  const { title, path, productId, packages } = state.pendingInstall;
+  const { title, path, productId, packages, isGameInstalled } = state.pendingInstall;
   const selectedPackages = (packages || []).filter(p => p.selected).map(p => p.id);
+  const newlyChecked = (packages || []).filter(p => p.selected && !p.installed).map(p => p.id);
+
+  if (isGameInstalled && newlyChecked.length === 0) {
+    closeInstallModal();
+    return;
+  }
 
   closeInstallModal();
+
+  if (isGameInstalled && newlyChecked.length > 0) {
+    showToast(`Downloading and installing ${newlyChecked.length} new component(s) for ${title}...`);
+    showProgress(`Adding components for ${title}...`, 5, 'Connecting');
+    sendNativeCommand({
+      cmd: 'install_game',
+      title: title,
+      path: path,
+      productId: productId,
+      selectedPackages: newlyChecked
+    });
+    return;
+  }
 
   showToast(`Connecting to Microsoft Delivery Optimization for ${title}...`);
   showProgress(`Connecting to Microsoft Delivery Optimization...`, 5, 'Connecting');
