@@ -469,8 +469,29 @@ function renderGames() {
 
   const filtered = state.games.filter(game => {
     if (!game) return false;
-    const q = state.searchQuery || '';
     const title = (game.title || '').toLowerCase();
+
+    // Filter out Xbox console-only games unless locally installed on disk
+    if (
+      title.includes(' - xbox one') ||
+      title.includes(' (xbox one)') ||
+      title.includes(' - xbox series') ||
+      title.includes(' (xbox series') ||
+      title.includes(' - xbox 360') ||
+      title.includes(' (xbox 360)') ||
+      title.includes(' (xbox)') ||
+      (title.includes(' - xbox') && !title.includes('windows') && !title.includes('pc'))
+    ) {
+      if (!game.installed) return false;
+    }
+
+    // Filter out Game Pass games if user has no Game Pass subscription
+    const hasGP = !!state.hasGamePassSubscription || !!(state.user && state.user.hasGamePass);
+    if (!hasGP && game.licenseType === 'gamepass' && !game.installed) {
+      return false;
+    }
+
+    const q = state.searchQuery || '';
     const dev = (game.developer || '').toLowerCase();
     const pid = (game.productId || game.id || '').toLowerCase();
     const matchesSearch = !q || title.includes(q) || dev.includes(q) || pid.includes(q);
@@ -481,11 +502,14 @@ function renderGames() {
     if (state.filter === 'gamepass') return game.licenseType === 'gamepass';
     if (state.filter === 'owned') return game.licenseType === 'owned';
 
-    if (state.hasGamePassSubscription === false && state.activeTab === 'library') {
-      return !!game.installed || game.licenseType === 'owned';
-    }
-
     return true;
+  });
+
+  // Always show installed games first, followed by alphabetical order
+  filtered.sort((a, b) => {
+    if (a.installed && !b.installed) return -1;
+    if (!a.installed && b.installed) return 1;
+    return (a.title || '').localeCompare(b.title || '');
   });
 
   filtered.forEach(game => {
@@ -1076,11 +1100,17 @@ function getEditionTier(title) {
       });
 
       state.games = Array.from(uniqueMap.values());
+      state.games.sort((a, b) => {
+        if (a.installed && !b.installed) return -1;
+        if (!a.installed && b.installed) return 1;
+        return (a.title || '').localeCompare(b.title || '');
+      });
       renderGames();
+      renderSidebarInstalled();
       if (state.games.length > 0) {
         updateHeroBanner(state.games.find(g => g.installed) || state.games[0]);
       }
-      showToast(`Synchronized ${state.games.length} titles from Microsoft Collections & Game Pass`);
+      showToast(`Synchronized ${state.games.length} titles from Microsoft Collections`);
     }
   };
 

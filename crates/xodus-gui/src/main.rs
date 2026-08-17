@@ -65,6 +65,18 @@ fn is_valid_pc_big_id(id: &str) -> bool {
     id.len() == 12 && id.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+fn is_console_only_title(title: &str) -> bool {
+    let lower = title.to_lowercase();
+    lower.contains(" - xbox one")
+        || lower.contains(" (xbox one)")
+        || lower.contains(" - xbox series")
+        || lower.contains(" (xbox series")
+        || lower.contains(" - xbox 360")
+        || lower.contains(" (xbox 360)")
+        || lower.contains(" (xbox)")
+        || (lower.contains(" - xbox") && !lower.contains("windows") && !lower.contains("pc"))
+}
+
 fn is_valid_store_id(id: &str) -> bool {
     is_valid_pc_big_id(id) || id.contains('.') || id.contains('_')
 }
@@ -241,35 +253,50 @@ fn deduplicate_games(games: Vec<xodus::api::xbox::GameCatalogItem>, has_gamepass
 
     let db = xodus::db::Database::open_default().ok();
     let all_catalog_products = db.as_ref().and_then(|d| d.get_all_catalog_products().ok()).unwrap_or_default();
+    let catalog_ids: std::collections::HashSet<String> = all_catalog_products.iter().map(|p| p.product_id.clone()).collect();
 
     let mut result: Vec<xodus::api::xbox::GameCatalogItem> = Vec::new();
     for mut g in map.into_values() {
-        // If not locally installed on disk, verify it has a valid Windows PC Store BigID or PFN
         if !g.installed {
-            if !is_valid_store_id(&g.product_id) {
-                // Attempt lookup in catalog products by title
-                let mut resolved = false;
+            // 1. Filter out console-only titles
+            if is_console_only_title(&g.title) {
+                continue;
+            }
+
+            // 2. Filter out Game Pass games if user has no Game Pass subscription
+            if g.license_type == "gamepass" && !has_gamepass_sub {
+                continue;
+            }
+
+            // 3. Must be verified as a PC title in catalog_cache or match a PC BigID
+            let mut is_verified_pc = catalog_ids.contains(&g.product_id);
+            if !is_verified_pc {
                 for p in &all_catalog_products {
                     if (p.title.eq_ignore_ascii_case(&g.title) || normalize_title(&p.title) == normalize_title(&g.title)) && is_valid_pc_big_id(&p.product_id) {
                         g.product_id = p.product_id.clone();
                         g.id = p.product_id.clone();
-                        resolved = true;
+                        is_verified_pc = true;
                         break;
                     }
                 }
-                if !resolved {
-                    // Filter out console-only / legacy Xbox titles completely
-                    continue;
-                }
             }
 
-            // If it's a Game Pass title but user does not have an active Game Pass subscription, do not include
-            if g.license_type == "gamepass" && !has_gamepass_sub {
+            if !is_verified_pc {
+                // Not a verified PC game: exclude completely
                 continue;
             }
         }
         result.push(g);
     }
+
+    // Always show installed games first, followed by alphabetical order
+    result.sort_by(|a, b| {
+        match (b.installed, a.installed) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+        }
+    });
 
     result
 }
@@ -490,7 +517,10 @@ async fn run_hydrate_and_sync(
             let mut developer = "Xbox Game Studios".to_string();
             let mut cover = xodus::api::xbox::DEFAULT_COVER_URL.to_string();
 
-            if let Some(cat) = catalog_map.get(&ent.product_id) {
+            let cat_opt = catalog_map.get(&ent.product_id);
+            let is_verified_pc = cat_opt.is_some();
+
+            if let Some(cat) = cat_opt {
                 if !cat.title.is_empty() { title = cat.title.clone(); }
                 if !cat.developer.is_empty() { developer = cat.developer.clone(); }
                 if let Some(ref p_url) = cat.poster_url {
@@ -516,6 +546,11 @@ async fn run_hydrate_and_sync(
                     install_path = inst.path.clone();
                     break;
                 }
+            }
+
+            // Exclude console-only titles or unverified titles unless installed on disk
+            if !is_installed && (!is_verified_pc || is_console_only_title(&title)) {
+                continue;
             }
 
             added_ids.insert(ent.product_id.clone());
@@ -704,17 +739,19 @@ async fn run_hydrate_and_sync(
 
                 for e in ents {
                     if !owned_ids.contains(&e.product_id) {
-                        let mut title = e.title.clone().unwrap_or_default();
-                        let mut developer = "Xbox Game Studios".to_string();
-                        let mut cover = xodus::api::xbox::DEFAULT_COVER_URL.to_string();
-                        if let Some(cat) = cat_map.get(&e.product_id) {
-                            if !cat.title.is_empty() { title = cat.title.clone(); }
-                            if !cat.developer.is_empty() { developer = cat.developer.clone(); }
-                            if let Some(ref p_url) = cat.poster_url {
-                                if !p_url.is_empty() { cover = p_url.clone(); }
-                            }
+                        let cat_opt = cat_map.get(&e.product_id);
+                        if cat_opt.is_none() {
+                            // Not a verified PC game, exclude console-only entitlement!
+                            continue;
                         }
-                        if title.is_empty() { title = e.product_id.clone(); }
+                        let cat = cat_opt.unwrap();
+                        let title = if !cat.title.is_empty() { cat.title.clone() } else { e.title.clone().unwrap_or_default() };
+                        if is_console_only_title(&title) {
+                            continue;
+                        }
+                        let developer = if !cat.developer.is_empty() { cat.developer.clone() } else { "Xbox Game Studios".to_string() };
+                        let cover = cat.poster_url.clone().unwrap_or_else(|| xodus::api::xbox::DEFAULT_COVER_URL.to_string());
+
                         owned_ids.insert(e.product_id.clone());
                         final_games.push(xodus::api::xbox::GameCatalogItem {
                             id: e.product_id.clone(),
