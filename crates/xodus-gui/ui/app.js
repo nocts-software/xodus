@@ -454,7 +454,7 @@ function updateHeroBanner(game) {
       `;
       installBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        installGame(gameTitle, gamePath);
+        showInstallModal(game);
       });
       actionsEl.appendChild(installBtn);
     }
@@ -518,6 +518,9 @@ function renderGames() {
     card.addEventListener('click', (e) => {
       if (!e.target.closest('button')) {
         updateHeroBanner(game);
+        if (!game.installed) {
+          showInstallModal(game);
+        }
       }
     });
 
@@ -586,7 +589,7 @@ function renderGames() {
       installBtn.textContent = 'Install';
       installBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        installGame(gameTitle, gamePath);
+        showInstallModal(game);
       });
       actionsDiv.appendChild(installBtn);
     }
