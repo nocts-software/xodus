@@ -971,6 +971,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .with_devtools(true)
+        .with_accept_first_mouse(true)
         .with_html(&combined_html)
 
         .with_ipc_handler(move |req| {

@@ -70,14 +70,12 @@ body {
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-subtle);
   z-index: 10;
-  -webkit-app-region: drag;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  -webkit-app-region: drag;
 }
 
 .brand-logo {
@@ -113,7 +111,6 @@ body {
   border-radius: var(--radius-full);
   color: var(--text-muted);
   transition: var(--transition-fast);
-  -webkit-app-region: no-drag;
 }
 
 .search-bar:focus-within {
@@ -139,7 +136,6 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
-  -webkit-app-region: no-drag;
 }
 
 .network-badge {

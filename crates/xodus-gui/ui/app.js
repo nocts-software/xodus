@@ -1,9 +1,10 @@
 // Xodus GUI Client Application Logic
 
 window.onerror = function(msg, url, line, col, error) {
+  if (msg === 'Script error.' && (!url || url === '')) return true;
   console.error('[JS ERROR]', msg, 'at', url, line + ':' + col, error);
   if (typeof sendNativeCommand === 'function') {
-    sendNativeCommand({ cmd: 'js_error', msg: String(msg), line: line, col: col, stack: error ? error.stack : '' });
+    sendNativeCommand({ cmd: 'js_error', msg: String(msg), url: String(url), line: line, col: col, stack: error ? error.stack : '' });
   }
   return false;
 };
