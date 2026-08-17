@@ -79,6 +79,9 @@ jobs:
           cp target/release/xodus-cli "$APPDIR/usr/bin/xodus-cli"
           cp target/release/xodus-cli "$APPDIR/usr/bin/xodus"
           cp target/release/xodus-service "$APPDIR/usr/bin/xodus-service"
+          if [ -f target/release/xodus-gui ]; then
+            cp target/release/xodus-gui "$APPDIR/usr/bin/xodus-gui"
+          fi
 
           # 2. Copy xgameruntime Wine Libraries if present
           if [ -f "../xgameruntime/xgameruntime.dll.so" ]; then
@@ -100,34 +103,54 @@ jobs:
           fi
 
           # 4. Create AppRun Dispatcher
-          printf "#!/usr/bin/env bash\nHERE=\"\$(dirname \"\$(readlink -f \"\${0}\")\")\"\nexport PATH=\"\${HERE}/usr/bin:\${PATH}\"\nexport LD_LIBRARY_PATH=\"\${HERE}/usr/lib:\${LD_LIBRARY_PATH}\"\nexport XODUS_RUNTIME_PATH=\"\${HERE}/usr/lib\"\nexport WINEDLLPATH=\"\${HERE}/usr/lib:\${WINEDLLPATH}\"\n\nif [ \"\$1\" = \"service\" ] || [ \"\$1\" = \"daemon\" ]; then\n    shift\n    exec \"\${HERE}/usr/bin/xodus-service\" \"\$@\"\nfi\n\nexec \"\${HERE}/usr/bin/xodus\" \"\$@\"\n" > "$APPDIR/AppRun"
+          printf "#!/usr/bin/env bash\nHERE=\"\$(dirname \"\$(readlink -f \"\${0}\")\")\"\nexport PATH=\"\${HERE}/usr/bin:\${PATH}\"\nexport LD_LIBRARY_PATH=\"\${HERE}/usr/lib:\${LD_LIBRARY_PATH}\"\nexport XODUS_RUNTIME_PATH=\"\${HERE}/usr/lib\"\nexport WINEDLLPATH=\"\${HERE}/usr/lib:\${WINEDLLPATH}\"\n\nif [ \"\$1\" = \"service\" ] || [ \"\$1\" = \"daemon\" ]; then\n    shift\n    exec \"\${HERE}/usr/bin/xodus-service\" \"\$@\"\nfi\n\nif [ -f \"\${HERE}/usr/bin/xodus-gui\" ] && [ -z \"\$1\" ]; then\n    exec \"\${HERE}/usr/bin/xodus-gui\" \"\$@\"\nfi\n\nexec \"\${HERE}/usr/bin/xodus\" \"\$@\"\n" > "$APPDIR/AppRun"
           chmod +x "$APPDIR/AppRun"
           chmod +x "$APPDIR/usr/bin"/*
 
           # 5. Build AppImage
-          appimagetool "$APPDIR" "dist/packages/xodus-linux-x86_64.AppImage"
+          appimagetool "$APPDIR" "dist/packages/nocts-xodus-gui.AppImage"
+          cp -f "dist/packages/nocts-xodus-gui.AppImage" "dist/packages/xodus-linux-x86_64.AppImage"
 
           echo "AppImage packaging complete:"
           ls -lh dist/packages/
 
       - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
         run: |
-          echo "=== Publishing Release to GitHub ==="
+          echo "=== Publishing Release to GitHub via REST API ==="
           TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || 'v1.0.0' }}"
-          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || 'noct''s xodus' }}"
+          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || 'noct''s xodus v1.0.0' }}"
           
-          # Use gh cli if available or upload via curl
-          if command -v gh &>/dev/null && [ -n "$GITHUB_TOKEN" ]; then
-            gh release create "$TAG_NAME" dist/packages/* \
-              --title "$TITLE" \
-              --notes "Automated release of noct's xodus ($TAG_NAME) built with multiplatform self-hosted runner." \
-              --repo "${{ github.repository }}" 2>/dev/null || \
-            gh release upload "$TAG_NAME" dist/packages/* \
-              --clobber \
-              --repo "${{ github.repository }}"
+          # Create or get existing release
+          CREATE_RES=$(curl -s -X POST \
+            -H "Authorization: token ${AUTH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/releases \
+            -d "{\"tag_name\":\"${TAG_NAME}\",\"name\":\"${TITLE}\",\"body\":\"Automated release of noct's xodus (${TAG_NAME}) - Xbox GDK compatibility runtime and manager for Linux.\",\"draft\":false,\"prerelease\":false}")
+          
+          RELEASE_ID=$(echo "$CREATE_RES" | jq -r '.id // empty')
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+            RELEASE_ID=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG_NAME} | jq -r '.id // empty')
           fi
+          echo "GitHub Release ID: $RELEASE_ID"
+
+          # Upload all packages in dist/packages/
+          for file in dist/packages/*; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading asset: $filename to release $RELEASE_ID..."
+            EXISTING_ASSET_ID=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets | jq -r ".[] | select(.name==\"$filename\") | .id // empty")
+            if [ -n "$EXISTING_ASSET_ID" ]; then
+              echo "Overwriting existing asset: $EXISTING_ASSET_ID"
+              curl -s -X DELETE -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/assets/${EXISTING_ASSET_ID}
+            fi
+            curl -s -X POST \
+              -H "Authorization: token ${AUTH_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$file" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${filename}"
+          done
 
       - name: Dispatch Catalog Update to Central Releases Repo
         if: always()
