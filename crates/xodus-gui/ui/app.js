@@ -897,6 +897,15 @@ function getEditionTier(title) {
 
       gamesList.forEach(g => {
         if (!g.title) return;
+        g.licenseType = g.licenseType || g.license_type || 'owned';
+        g.license_type = g.licenseType;
+        g.productId = g.productId || g.product_id || g.id || '';
+        g.product_id = g.productId;
+        g.cloudSynced = g.cloudSynced !== undefined ? g.cloudSynced : (g.cloud_synced !== undefined ? g.cloud_synced : true);
+        g.cloud_synced = g.cloudSynced;
+        g.lastPlayed = g.lastPlayed || g.last_played || 'Recent';
+        g.last_played = g.lastPlayed;
+
         const titleLower = g.title.toLowerCase().trim();
         if (titleLower === 'gamesave' || titleLower === 'wgs' || titleLower === 'msixvc' || titleLower.startsWith('.')) return;
 
