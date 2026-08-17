@@ -1,3 +1,8 @@
+//! # Xodus GUI Application
+//!
+//! Modern, high-performance desktop interface for browsing, downloading, managing DLCs,
+//! and launching Xbox Game Pass / Microsoft Store games natively on Linux via Proton and XGameRuntime.
+
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tao::{
@@ -14,20 +19,30 @@ const CSS: &str = include_str!("../ui/styles.css");
 const ASSETS: &str = include_str!("../ui/assets.js");
 const JS: &str = include_str!("../ui/app.js");
 
+/// Custom window events routed through Tao event loop proxy for asynchronous WebView interop.
 #[derive(Debug)]
 enum CustomEvent {
+    /// Evaluate a JavaScript snippet inside the WebView context.
     EvaluateScript(String),
+    /// Minimize the host window.
     Minimize,
+    /// Maximize / restore the host window.
     Maximize,
+    /// Close the host window and terminate the application.
     Close,
+    /// Begin interactive window dragging (for custom frameless titlebar).
     DragWindow,
 }
 
+/// Global registry tracking active game processes by Title ID -> Process ID (PID).
 static ACTIVE_GAMES: std::sync::OnceLock<tokio::sync::Mutex<std::collections::HashMap<String, u32>>> = std::sync::OnceLock::new();
+
+/// Access the global active game process registry.
 fn active_games() -> &'static tokio::sync::Mutex<std::collections::HashMap<String, u32>> {
     ACTIVE_GAMES.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// Recursively discovers all descendant child Process IDs for a given root PID.
 fn get_descendant_pids(pid: u32) -> Vec<u32> {
     let mut pids = vec![pid];
     if let Ok(output) = std::process::Command::new("pgrep").arg("-P").arg(pid.to_string()).output() {
@@ -40,6 +55,7 @@ fn get_descendant_pids(pid: u32) -> Vec<u32> {
     pids
 }
 
+/// Checks if an active X11 / Wayland window exists for any process in the game PID subtree via `wmctrl`.
 fn check_game_window(root_pid: u32) -> bool {
     let pids = get_descendant_pids(root_pid);
     if let Ok(output) = std::process::Command::new("wmctrl").arg("-lp").output() {
@@ -59,6 +75,7 @@ fn check_game_window(root_pid: u32) -> bool {
     false
 }
 
+/// Normalizes game title strings by removing redundant platform suffixes (e.g. " - Windows", " (PC)").
 fn normalize_title(title: &str) -> String {
     let mut s = title.to_lowercase();
     let patterns = [
@@ -82,6 +99,7 @@ fn normalize_title(title: &str) -> String {
     s.trim().to_string()
 }
 
+/// Assigns a priority weight to different game edition tiers (Ultimate > Deluxe > Standard).
 fn edition_tier(title: &str) -> u32 {
     let lower = title.to_lowercase();
     if lower.contains("ultimate") || lower.contains("complete") || lower.contains("anniversary") || lower.contains("collector") {
@@ -97,10 +115,12 @@ fn edition_tier(title: &str) -> u32 {
     }
 }
 
+/// Verifies whether a string conforms to a 12-character Microsoft Store BigID.
 fn is_valid_pc_big_id(id: &str) -> bool {
     id.len() == 12 && id.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+/// Filters out console-exclusive Xbox SKUs that cannot execute on PC.
 fn is_console_only_title(title: &str) -> bool {
     let lower = title.to_lowercase();
     lower.contains(" - xbox one")
@@ -113,10 +133,7 @@ fn is_console_only_title(title: &str) -> bool {
         || (lower.contains(" - xbox") && !lower.contains("windows") && !lower.contains("pc"))
 }
 
-fn is_valid_store_id(id: &str) -> bool {
-    is_valid_pc_big_id(id) || id.contains('.') || id.contains('_')
-}
-
+/// Formats byte counts into human-readable strings (KB, MB, GB).
 fn format_bytes(bytes: i64) -> String {
     if bytes <= 0 {
         return "Standard (~15-45 GB)".to_string();
@@ -993,18 +1010,29 @@ async fn run_hydrate_and_sync(
     }
 }
 
+/// State representation of an active game download job.
 #[derive(Clone, Default, Debug)]
 struct ActiveDownloadTask {
+    /// Display title of the game.
     title: String,
+    /// Microsoft Store BigID / Product ID.
     product_id: String,
+    /// Destination installation directory on disk.
     path: String,
+    /// List of specific package / DLC content IDs selected by the user for download.
     selected_packages: Vec<String>,
+    /// Target folder path for staged downloads.
     dest_dir: String,
+    /// Indicates whether download streaming is currently paused.
     is_paused: bool,
+    /// Indicates whether the download was requested to cancel.
     is_cancelled: bool,
+    /// OS Process ID of the spawned `xodus-cli streaming` worker process.
     child_pid: Option<u32>,
 }
 
+/// Background asynchronous worker task that orchestrates package streaming, CLI child process management,
+/// stdout progress stream parsing, and GUI progress bar updates.
 async fn run_download_worker(
     title: String,
     product_id: String,
@@ -1205,6 +1233,9 @@ async fn run_download_worker(
     }
 }
 
+/// Main application entrypoint for the Xodus GUI.
+/// Initializes the Tokio runtime, Tao event loop, frameless window, Wry WebView, IPC handlers,
+/// and background catalog sync tasks.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env("XODUS_LOG");
     xodus::secrets::init_secrets().ok();
@@ -1215,7 +1246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let saved_state = load_window_state();
     let win_state = Arc::new(Mutex::new(saved_state.clone()));
-    let win_state_ipc = win_state.clone();
+    let _win_state_ipc = win_state.clone();
     let win_state_loop = win_state.clone();
 
     let initial_w = saved_state.width.clamp(960, 3840);
@@ -1241,12 +1272,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = window_builder.build(&event_loop)?;
 
     let window = Arc::new(window);
-    let win_ipc = window.clone();
+    let _win_ipc = window.clone();
 
+    // Inline CSS and JavaScript assets directly into single HTML bundle
     let combined_html = HTML
         .replace("<link rel=\"stylesheet\" href=\"styles.css\">", &format!("<style>{}</style>", CSS))
         .replace("<script src=\"app.js\"></script>", &format!("<script>{}</script><script>{}</script>", ASSETS, JS));
-
 
     let rt = std::sync::Arc::new(tokio::runtime::Runtime::new()?);
     let rt_ipc = rt.clone();

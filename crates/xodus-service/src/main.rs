@@ -1,3 +1,9 @@
+//! # Xodus Background Service Daemon
+//!
+//! Provides a local Unix domain socket listener (`/tmp/xodus.sock`) that bridges Wine/Proton processes
+//! running `xgameruntime.dll` with Xbox Live licensing, token exchanges, Title ID authentication,
+//! and save game synchronization services.
+
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -9,7 +15,8 @@ use xodus::tokens::TokenManager;
 use xodus_service::connection;
 use xodus_service::utils;
 
-
+/// Main entrypoint for the background daemon service.
+/// Sets up device credentials, binds to `/tmp/xodus.sock`, and multiplexes client connections from Wine games.
 #[tokio::main]
 async fn main() {
     xodus::secrets::init_secrets().expect("Failed to init keychain");

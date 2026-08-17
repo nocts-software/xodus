@@ -313,6 +313,15 @@ async fn ensure_service_running() {
     }
 }
 
+/// Launches a Microsoft Store / Xbox Game Pass game on Linux via Proton and XGameRuntime.
+///
+/// Workflow:
+/// 1. Inspects game folder for `MicrosoftGame.config`, `AppxManifest.xml`, or MSIXVC/XVD containers.
+/// 2. Derives license keys and starts the `xodus-service` background daemon.
+/// 3. Automatically syncs cloud saves from Xbox Live before launch.
+/// 4. Configures Wine prefix registry for GDK DLL overrides (`xgameruntime.dll`, `twinapi.appcore.dll`).
+/// 5. Launches game executable under Proton with DXVK/VKD3D-Proton and MangoHud.
+/// 6. Synchronizes updated local save data back to Xbox Live upon session completion.
 pub async fn run(
     client: &reqwest::Client,
     tokens: &TokenManager,

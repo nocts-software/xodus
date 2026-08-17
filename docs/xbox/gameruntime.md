@@ -156,3 +156,14 @@ The licensableProducts is a list of all products that are part of the package, i
 ```JSON
 {"endDate":"9999-12-31T23:59:59.9999999+00:00","isShared":false,"id":"<user-product entitlement Id>","productId":"<productId>","skuId":"0010","userId":"<hashed format of UserID>"}
 ```
+
+---
+
+## GDK COM Interface Dispatch & IPC Bridge
+
+When a Windows GDK title executes under Wine/Proton, `xgameruntime.dll` is loaded into the process address space. The runtime dispatches calls through COM class factories:
+
+1. **`InitializeApiImplEx2(gdkVer, gsVer, mode, options)`**: Initializes GDK subsystem state, allocates thread-local storage, and connects to `/tmp/xodus.sock`.
+2. **`QueryApiImpl(clsid, iid, out)`**: Resolves COM interface queries (e.g. `CLSID_XUserImpl`, `CLSID_XGameSaveImpl`, `CLSID_XStoreImpl`, `CLSID_XThreadingImpl`) into internal vtables.
+3. **`xodus-service` IPC**: For operations requiring Live credentials (MSA silent token acquisition, modern Gamertags, and entitlement verification), `xgameruntime` transmits structured JSON payloads over the Unix domain socket.
+4. **`XTaskQueue` & `XAsyncBlock`**: Asynchronous completion results (such as `XGameSaveReadBlobDataResult`) are stored in internal provider blocks and signaled via completion events once the requested payload is fully deserialized.
