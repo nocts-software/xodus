@@ -1278,6 +1278,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let mut res_hero = String::new();
                                 let mut total_bytes: i64 = 0;
                                 let mut packages_json = Vec::new();
+                                let mut seen_pkgs = std::collections::HashSet::new();
+                                let mut bundled_ids = Vec::new();
 
                                 if target_id.len() == 12 {
                                     let url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products/{target_id}?market=US&languages=en-us");
@@ -1310,10 +1312,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         }
                                                     }
 
-                                                    // Extract packages
+                                                    // Extract direct packages and bundled SKUs
                                                     if let Some(skus) = prod.get("DisplaySkuAvailabilities").and_then(|s| s.as_array()) {
-                                                        let mut seen_pkgs = std::collections::HashSet::new();
                                                         for sku_obj in skus {
+                                                            if let Some(bundled) = sku_obj.get("Sku").and_then(|s| s.get("Properties")).and_then(|p| p.get("BundledSkus")).and_then(|b| b.as_array()) {
+                                                                for b_item in bundled {
+                                                                    if let Some(b_id) = b_item.get("BigId").and_then(|i| i.as_str()) {
+                                                                        if !b_id.is_empty() && !bundled_ids.contains(&b_id.to_string()) {
+                                                                            bundled_ids.push(b_id.to_string());
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+
                                                             if let Some(pkgs) = sku_obj.get("Sku").and_then(|s| s.get("Properties")).and_then(|p| p.get("Packages")).and_then(|pk| pk.as_array()) {
                                                                 for pkg in pkgs {
                                                                     let is_desktop = pkg.get("PlatformDependencies").and_then(|pd| pd.as_array()).map(|arr| {
@@ -1357,6 +1368,119 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                             }
                                                         }
                                                     }
+
+                                                    // Also check RelatedProducts for bundles
+                                                    if let Some(mkts) = prod.get("MarketProperties").and_then(|m| m.as_array()) {
+                                                        for mkt in mkts {
+                                                            if let Some(rels) = mkt.get("RelatedProducts").and_then(|r| r.as_array()) {
+                                                                for rel in rels {
+                                                                    if let Some(rel_id) = rel.get("RelatedProductId").and_then(|i| i.as_str()) {
+                                                                        if !rel_id.is_empty() && !bundled_ids.contains(&rel_id.to_string()) && rel_id != target_id {
+                                                                            bundled_ids.push(rel_id.to_string());
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Batch query all bundled/related BigIDs
+                                    if !bundled_ids.is_empty() {
+                                        for chunk in bundled_ids.chunks(20) {
+                                            let joined_ids = chunk.join(",");
+                                            let batch_url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds={joined_ids}&market=US&languages=en-us");
+                                            if let Ok(batch_resp) = client.get(&batch_url).header("MS-CV", "0.1").send().await {
+                                                if batch_resp.status().is_success() {
+                                                    if let Ok(batch_val) = batch_resp.json::<serde_json::Value>().await {
+                                                        if let Some(sub_prods) = batch_val.get("Products").and_then(|p| p.as_array()) {
+                                                            let mut extra_sub_ids = Vec::new();
+                                                            for sp in sub_prods {
+                                                                if let Some(mkts) = sp.get("MarketProperties").and_then(|m| m.as_array()) {
+                                                                    for mkt in mkts {
+                                                                        if let Some(rels) = mkt.get("RelatedProducts").and_then(|r| r.as_array()) {
+                                                                            for rel in rels {
+                                                                                if let Some(rel_id) = rel.get("RelatedProductId").and_then(|i| i.as_str()) {
+                                                                                    if !rel_id.is_empty() && !bundled_ids.contains(&rel_id.to_string()) && !extra_sub_ids.contains(&rel_id.to_string()) {
+                                                                                        extra_sub_ids.push(rel_id.to_string());
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            let mut all_products = sub_prods.clone();
+                                                            if !extra_sub_ids.is_empty() {
+                                                                let extra_joined = extra_sub_ids.join(",");
+                                                                let extra_url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds={extra_joined}&market=US&languages=en-us");
+                                                                if let Ok(extra_resp) = client.get(&extra_url).header("MS-CV", "0.1").send().await {
+                                                                    if extra_resp.status().is_success() {
+                                                                        if let Ok(extra_val) = extra_resp.json::<serde_json::Value>().await {
+                                                                            if let Some(extra_prods) = extra_val.get("Products").and_then(|p| p.as_array()) {
+                                                                                all_products.extend(extra_prods.iter().cloned());
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            for sub_p in &all_products {
+                                                                let sub_title = sub_p.get("LocalizedProperties")
+                                                                    .and_then(|lp| lp.as_array())
+                                                                    .and_then(|a| a.first())
+                                                                    .and_then(|p| p.get("ProductTitle"))
+                                                                    .and_then(|t| t.as_str())
+                                                                    .unwrap_or("Component");
+
+                                                                if let Some(skus) = sub_p.get("DisplaySkuAvailabilities").and_then(|s| s.as_array()) {
+                                                                    for sku_obj in skus {
+                                                                        if let Some(pkgs) = sku_obj.get("Sku").and_then(|s| s.get("Properties")).and_then(|p| p.get("Packages")).and_then(|pk| pk.as_array()) {
+                                                                            for pkg in pkgs {
+                                                                                let pkg_id = pkg.get("PackageId").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                                                                                let content_id = pkg.get("ContentId").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                                                                                let key = if !content_id.is_empty() { content_id.clone() } else { pkg_id.clone() };
+                                                                                if key.is_empty() || seen_pkgs.contains(&key) { continue; }
+                                                                                seen_pkgs.insert(key);
+
+                                                                                let size = pkg.get("MaxDownloadSizeInBytes").and_then(|s| s.as_i64()).unwrap_or(0);
+                                                                                let format_type = pkg.get("PackageFormat").and_then(|f| f.as_str()).unwrap_or("MSIXVC");
+                                                                                let is_desktop = pkg.get("PlatformDependencies").and_then(|pd| pd.as_array()).map(|arr| {
+                                                                                    arr.iter().any(|dep| {
+                                                                                        let p = dep.get("PlatformName").and_then(|pn| pn.as_str()).unwrap_or("").to_lowercase();
+                                                                                        p.contains("desktop") || p.contains("universal") || p == "pc" || p == "windows"
+                                                                                    })
+                                                                                }).unwrap_or(false);
+
+                                                                                let is_large_base = size > 1_000_000_000;
+                                                                                let is_base = (packages_json.is_empty() || is_large_base) && is_desktop;
+
+                                                                                let display_name = if is_large_base && is_desktop {
+                                                                                    format!("{sub_title} ({format_type})")
+                                                                                } else {
+                                                                                    sub_title.to_string()
+                                                                                };
+
+                                                                                total_bytes += size;
+                                                                                packages_json.push(serde_json::json!({
+                                                                                    "id": if !content_id.is_empty() { content_id } else { pkg_id },
+                                                                                    "name": display_name,
+                                                                                    "sizeBytes": size,
+                                                                                    "sizeFormatted": format_bytes(size),
+                                                                                    "required": is_base && packages_json.iter().all(|p| !p.get("required").and_then(|r| r.as_bool()).unwrap_or(false)),
+                                                                                    "selected": true
+                                                                                }));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1375,7 +1499,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
 
                                 let safe_title: String = res_title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect();
-                                let dest_dir = if !path.is_empty() { path.clone() } else { format!("/mnt/w11/XboxGames/{}", safe_title.trim()) };
+                                let dest_dir = format!("/mnt/w11/XboxGames/{}", safe_title.trim());
 
                                 let details_payload = serde_json::json!({
                                     "productId": target_id,

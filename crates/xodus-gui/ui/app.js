@@ -835,7 +835,8 @@ function installGame(title, path) {
 window.showInstallModal = function(game) {
   const safeTitle = game.title || 'Game';
   const prodId = game.productId || game.id || '';
-  const defPath = game.path || `/mnt/w11/XboxGames/${prodId}`;
+  const sanitizedTitle = safeTitle.replace(/[\\/:*?"<>|]/g, '').trim();
+  const defPath = `/mnt/w11/XboxGames/${sanitizedTitle}`;
 
   state.pendingInstall = {
     title: safeTitle,
@@ -859,10 +860,13 @@ window.showInstallModal = function(game) {
   if (titleEl) titleEl.textContent = safeTitle;
   if (devEl) devEl.textContent = `${game.developer || 'Xbox Game Studios'} • Windows PC`;
   if (coverEl) coverEl.src = game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
-  if (sizeEl) sizeEl.textContent = 'Calculating download size...';
+  if (sizeEl) {
+    sizeEl.textContent = 'Calculating download size...';
+    sizeEl.classList.add('size-highlight');
+  }
   if (pathEl) pathEl.textContent = defPath;
   if (descEl) descEl.textContent = 'Retrieving game overview and component manifest...';
-  if (pkgListEl) pkgListEl.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; padding: 6px 0;">Scanning available MSIXVC packages...</div>';
+  if (pkgListEl) pkgListEl.innerHTML = '<div style="color: #a0a0a0; font-size: 13px; padding: 10px 0;">Scanning available MSIXVC packages & DLCs...</div>';
   if (btnTextEl) btnTextEl.textContent = 'Start Installation';
 
   if (modal) {
@@ -919,6 +923,7 @@ function renderInstallPackages() {
       <label class="package-item-left" style="cursor: ${pkg.required ? 'default' : 'pointer'};">
         <input type="checkbox" class="pkg-checkbox" ${pkg.selected ? 'checked' : ''} ${pkg.required ? 'disabled' : ''} data-index="${index}">
         <span>${pkg.name || 'Component'}</span>
+        ${pkg.required ? '<span class="package-tag-required">Required</span>' : ''}
       </label>
       <span class="package-item-size">${pkg.sizeFormatted || 'Standard'}</span>
     `;
@@ -935,7 +940,11 @@ function renderInstallPackages() {
   });
 
   const formattedTotal = formatBytesJS(totalBytes);
-  if (sizeEl) sizeEl.textContent = totalBytes > 0 ? formattedTotal : (state.pendingInstall.details?.totalSizeFormatted || 'Standard (~15-45 GB)');
+  const finalDisplaySize = totalBytes > 0 ? formattedTotal : (state.pendingInstall.details?.totalSizeFormatted || 'Standard (~15-45 GB)');
+  if (sizeEl) {
+    sizeEl.textContent = finalDisplaySize;
+    sizeEl.classList.add('size-highlight');
+  }
   if (btnTextEl) btnTextEl.textContent = totalBytes > 0 ? `Start Installation (${formattedTotal})` : 'Start Installation';
 }
 
