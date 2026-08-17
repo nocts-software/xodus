@@ -130,18 +130,14 @@ fn parse_microsoft_game_config(content: &str) -> GameConfigInfo {
             if let Some(start) = trimmed.find("Name=\"") {
                 let rest = &trimmed[start + 6..];
                 if let Some(end) = rest.find('"') {
-                    let mut exe_name = rest[..end].to_string();
+                    let mut exe_name = rest[..end].replace('\\', "/");
                     if let Some(alias_start) = trimmed.find("Alias=\"") {
                         let alias_rest = &trimmed[alias_start + 7..];
                         if let Some(alias_end) = alias_rest.find('"') {
                             let alias_name = &alias_rest[..alias_end];
                             if !alias_name.is_empty() && exe_name.to_ascii_lowercase().contains("launcher") {
-                                if let Some(parent) = Path::new(&exe_name).parent() {
-                                    if !parent.as_os_str().is_empty() {
-                                        exe_name = format!("{}/{}", parent.display(), alias_name);
-                                    } else {
-                                        exe_name = alias_name.to_string();
-                                    }
+                                if let Some(last_slash) = exe_name.rfind('/') {
+                                    exe_name = format!("{}/{}", &exe_name[..last_slash], alias_name);
                                 } else {
                                     exe_name = alias_name.to_string();
                                 }
@@ -340,8 +336,12 @@ pub async fn run(
     // Parse MicrosoftGame.config if present
     let config_path = if content_dir.join("MicrosoftGame.config").exists() {
         Some(content_dir.join("MicrosoftGame.config"))
+    } else if content_dir.join("MicrosoftGame.Config").exists() {
+        Some(content_dir.join("MicrosoftGame.Config"))
     } else if out_absolute.join("MicrosoftGame.config").exists() {
         Some(out_absolute.join("MicrosoftGame.config"))
+    } else if out_absolute.join("MicrosoftGame.Config").exists() {
+        Some(out_absolute.join("MicrosoftGame.Config"))
     } else {
         None
     };
@@ -930,34 +930,45 @@ pub async fn run(
         }
 
         candidates.into_iter().find(|p| p.exists())
-    };
-
-    // Locate bundled GDK and AppCore helper libraries from AppImage or system
-    let runtime_dir = std::env::var("XODUS_RUNTIME_PATH")
-        .ok()
-        .map(PathBuf::from)
+    };    // Locate bundled GDK and AppCore helper libraries from AppImage or system
+    let gdk_dll = Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/xgameruntime.dll"))
+        .filter(|p| p.exists())
         .or_else(|| {
-            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib")))
+            std::env::var("XODUS_RUNTIME_PATH")
+                .ok()
+                .map(|p| PathBuf::from(p).join("xgameruntime.dll"))
+                .filter(|p| p.exists())
         })
-        .or_else(|| Some(PathBuf::from("/usr/lib/xodus")));
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib/xgameruntime.dll"))).filter(|p| p.exists())
+        })
+        .or_else(|| Some(PathBuf::from("/usr/lib/xodus/xgameruntime.dll")).filter(|p| p.exists()));
 
-    let gdk_dll = runtime_dir
-        .as_ref()
-        .map(|d| d.join("xgameruntime.dll"))
+    let twinapi_dll = Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/twinapi.appcore.dll"))
         .filter(|p| p.exists())
-        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/xgameruntime.dll")).filter(|p| p.exists()));
+        .or_else(|| {
+            std::env::var("XODUS_RUNTIME_PATH")
+                .ok()
+                .map(|p| PathBuf::from(p).join("twinapi.appcore.dll"))
+                .filter(|p| p.exists())
+        })
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib/twinapi.appcore.dll"))).filter(|p| p.exists())
+        })
+        .or_else(|| Some(PathBuf::from("/usr/lib/xodus/twinapi.appcore.dll")).filter(|p| p.exists()));
 
-    let twinapi_dll = runtime_dir
-        .as_ref()
-        .map(|d| d.join("twinapi.appcore.dll"))
+    let appnotify_dll = Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll"))
         .filter(|p| p.exists())
-        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/twinapi.appcore.dll")).filter(|p| p.exists()));
-
-    let appnotify_dll = runtime_dir
-        .as_ref()
-        .map(|d| d.join("api-ms-win-core-psm-appnotify-l1-1-0.dll"))
-        .filter(|p| p.exists())
-        .or_else(|| Some(PathBuf::from("/run/media/noct/ssd1/Repo/other/xodus/xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll")).filter(|p| p.exists()));
+        .or_else(|| {
+            std::env::var("XODUS_RUNTIME_PATH")
+                .ok()
+                .map(|p| PathBuf::from(p).join("api-ms-win-core-psm-appnotify-l1-1-0.dll"))
+                .filter(|p| p.exists())
+        })
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("../lib/api-ms-win-core-psm-appnotify-l1-1-0.dll"))).filter(|p| p.exists())
+        })
+        .or_else(|| Some(PathBuf::from("/usr/lib/xodus/api-ms-win-core-psm-appnotify-l1-1-0.dll")).filter(|p| p.exists()));
 
     let target_sub_dirs = [
         run_dir.clone(),
@@ -1035,7 +1046,7 @@ pub async fn run(
     println!("Launching Windows executable at: {}", win_exec_target);
 
     if use_proton {
-        let compat_title = parsed_title_id.as_deref().unwrap_or(&title_id_str);
+        let compat_title = parsed_title_id.as_deref().unwrap_or(&title_id_str).to_ascii_lowercase();
         let compat_data = PathBuf::from(format!("{}/.local/share/xodus/compatdata/{}", home, compat_title));
         tokio::fs::create_dir_all(&compat_data).await.ok();
 
