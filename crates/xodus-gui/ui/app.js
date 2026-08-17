@@ -941,11 +941,28 @@ function renderInstallPackages() {
 
   const formattedTotal = formatBytesJS(totalBytes);
   const finalDisplaySize = totalBytes > 0 ? formattedTotal : (state.pendingInstall.details?.totalSizeFormatted || 'Standard (~15-45 GB)');
+  const isResume = state.pendingInstall.details?.isResume;
+  const existingFormatted = state.pendingInstall.details?.existingFormatted || '0 B';
+  const existingBytes = state.pendingInstall.details?.existingBytes || 0;
+
   if (sizeEl) {
-    sizeEl.textContent = finalDisplaySize;
+    if (isResume && totalBytes > 0) {
+      const remainingBytes = Math.max(0, totalBytes - existingBytes);
+      sizeEl.innerHTML = `${finalDisplaySize} <span style="font-size: 11px; color: #52b788; font-weight: 600; margin-left: 6px;">(${existingFormatted} on disk, ${formatBytesJS(remainingBytes)} remaining)</span>`;
+    } else {
+      sizeEl.textContent = finalDisplaySize;
+    }
     sizeEl.classList.add('size-highlight');
   }
-  if (btnTextEl) btnTextEl.textContent = totalBytes > 0 ? `Start Installation (${formattedTotal})` : 'Start Installation';
+
+  if (btnTextEl) {
+    if (isResume) {
+      const remainingBytes = Math.max(0, totalBytes - existingBytes);
+      btnTextEl.textContent = remainingBytes > 0 ? `Resume Download (${formatBytesJS(remainingBytes)} remaining)` : 'Verify & Resume Download';
+    } else {
+      btnTextEl.textContent = totalBytes > 0 ? `Start Installation (${formattedTotal})` : 'Start Installation';
+    }
+  }
 }
 
 function formatBytesJS(bytes) {

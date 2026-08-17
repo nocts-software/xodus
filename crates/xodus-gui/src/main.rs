@@ -98,6 +98,23 @@ fn format_bytes(bytes: i64) -> String {
     }
 }
 
+fn compute_dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                if let Ok(meta) = p.metadata() {
+                    total += meta.len();
+                }
+            } else if p.is_dir() {
+                total += compute_dir_size(&p);
+            }
+        }
+    }
+    total
+}
+
 #[derive(Debug, Clone)]
 struct InstalledGameInfo {
     folder_name: String,
@@ -1502,6 +1519,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                 let safe_title: String = res_title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect();
                                 let dest_dir = format!("/mnt/w11/XboxGames/{}", safe_title.trim());
+                                let dest_path = std::path::Path::new(&dest_dir);
+
+                                let mut existing_bytes = 0u64;
+                                let mut is_resume = false;
+                                if dest_path.exists() && dest_path.is_dir() {
+                                    existing_bytes = compute_dir_size(dest_path);
+                                    if existing_bytes > 5_000_000 && !has_game_files(dest_path) {
+                                        is_resume = true;
+                                    }
+                                }
 
                                 let details_payload = serde_json::json!({
                                     "productId": target_id,
@@ -1513,7 +1540,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     "totalSizeBytes": total_bytes,
                                     "totalSizeFormatted": if total_bytes > 0 { format_bytes(total_bytes) } else { "Estimated ~15-45 GB".to_string() },
                                     "installPath": dest_dir,
-                                    "packages": packages_json
+                                    "packages": packages_json,
+                                    "isResume": is_resume,
+                                    "existingBytes": existing_bytes,
+                                    "existingFormatted": if existing_bytes > 0 { format_bytes(existing_bytes as i64) } else { "0 B".to_string() }
                                 });
 
                                 if let Ok(payload_str) = serde_json::to_string(&details_payload) {

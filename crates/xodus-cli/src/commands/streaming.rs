@@ -503,20 +503,27 @@ where
 
     let full_key = content_key.unpack(&key).expect("failed to unpack");
 
-    let total_size = rfiles
-        .iter()
-        .filter(|(k, v1)| {
-            if let Some(v2) = lfiles.get(*k) {
-                v1.data_hashs != v2.data_hashs || v1.data_hashs.is_empty()
-            } else {
-                true
-            }
-        })
-        .map(|(_, v)| v.length)
-        .reduce(|old, c| old + c)
-        .map_or(0, |x| x);
+    // Collect list of files to download vs already downloaded files
+    let mut files_to_download = Vec::new();
+    let mut already_downloaded_bytes = 0u64;
 
-    let required_free_space = total_size;
+    for (name, v) in &rfiles {
+        let target_file = out.join(name.replace("\\", "/"));
+        if target_file.exists() {
+            if let Ok(meta) = std::fs::metadata(&target_file) {
+                if meta.len() == v.length && v.length > 0 {
+                    already_downloaded_bytes += v.length;
+                    continue; // File is already complete and verified on disk!
+                }
+            }
+        }
+        files_to_download.push((name.clone(), v.clone()));
+    }
+
+    let remaining_download_size: u64 = files_to_download.iter().map(|(_, v)| v.length).sum();
+    let total_package_size: u64 = rfiles.values().map(|v| v.length).sum();
+
+    let required_free_space = remaining_download_size;
     let available_free_space = match available_space(out) {
         Ok(space) => space,
         Err(err) => {
@@ -530,32 +537,41 @@ where
 
     if available_free_space < required_free_space {
         return Err(format!(
-            "Not enough free disk space on {}: need {} bytes, have {} bytes (files: {})",
+            "Not enough free disk space on {}: need {} bytes, have {} bytes (remaining: {})",
             out.display(),
             required_free_space,
             available_free_space,
-            total_size
+            remaining_download_size
         ));
     }
 
     tx.send(ProgressEvent::UpdateRemaining {
-        name: "Downloading".to_owned(),
-        total: total_size,
+        name: if already_downloaded_bytes > 0 { "Resuming download".to_owned() } else { "Downloading".to_owned() },
+        total: total_package_size,
     })
     .await
     .ok();
 
+    if already_downloaded_bytes > 0 {
+        tx.send(ProgressEvent::Advanced {
+            id: usize::MAX,
+            delta: already_downloaded_bytes,
+        })
+        .await
+        .ok();
+    }
+
+    if files_to_download.is_empty() {
+        println!("All files already completely downloaded and verified.");
+        std::fs::remove_file(&final_path).ok();
+        std::fs::rename(&cache_path, &final_path).ok();
+        return Ok(());
+    }
+
     let remote_xvd_ref = &remote_xvd;
     stream::iter(
-        rfiles
+        files_to_download
             .iter()
-            .filter(|(k, v1)| {
-                if let Some(v2) = lfiles.get(*k) {
-                    v1.data_hashs != v2.data_hashs || v1.data_hashs.is_empty()
-                } else {
-                    true
-                }
-            })
             .map(|(n, v)| Job {
                 name: n.clone(),
                 content: SegmentFile {
@@ -579,7 +595,7 @@ where
                 .create(true)
                 .write(true)
                 .truncate(true)
-                .open(target_file)
+                .open(&target_file)
                 .await
                 .expect("ok");
             let mut lp = 0;
@@ -620,17 +636,13 @@ where
                 let _ = fout.flush().await;
                 tx.send(ProgressEvent::Finished { id }).await.ok();
             } else {
-
-
-
-
-
-
-
-                remote_xvd_ref
+                if let Err(err) = remote_xvd_ref
                     .download_file_http(&client, url, &mut fout, &job.content, *full_key, progress)
                     .await
-                    .expect("msg");
+                {
+                    eprintln!("Failed to download file {}: {}", job.name, err);
+                }
+                let _ = fout.flush().await;
                 tx.send(ProgressEvent::Finished { id }).await.ok();
             }
         }
