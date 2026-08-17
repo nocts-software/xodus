@@ -1,18 +1,58 @@
 // Xodus GUI Client Application Logic
 
+function safeGetStorage(key, fallback = null) {
+  try {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem(key)) || fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function safeSetStorage(key, val) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, val);
+    }
+  } catch (e) {}
+}
+
+// Native IPC Bridge (Defined first so error handlers and early events can use it)
+function sendNativeCommand(payload) {
+  const str = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  if (window.ipc && typeof window.ipc.postMessage === 'function') {
+    try {
+      window.ipc.postMessage(str);
+    } catch (e) {
+      console.error('[Native IPC Error]', e);
+    }
+  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc && typeof window.webkit.messageHandlers.ipc.postMessage === 'function') {
+    try {
+      window.webkit.messageHandlers.ipc.postMessage(str);
+    } catch (e) {
+      console.error('[Native WebKit IPC Error]', e);
+    }
+  } else {
+    console.log('[Native IPC Pending]', payload);
+    setTimeout(() => {
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {
+        window.ipc.postMessage(str);
+      } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {
+        window.webkit.messageHandlers.ipc.postMessage(str);
+      }
+    }, 150);
+  }
+}
+window.sendNativeCommand = sendNativeCommand;
+
 window.onerror = function(msg, url, line, col, error) {
   if (msg === 'Script error.' && (!url || url === '')) return true;
   console.error('[JS ERROR]', msg, 'at', url, line + ':' + col, error);
-  if (typeof sendNativeCommand === 'function') {
-    sendNativeCommand({ cmd: 'js_error', msg: String(msg), url: String(url), line: line, col: col, stack: error ? error.stack : '' });
-  }
+  sendNativeCommand({ cmd: 'js_error', msg: String(msg), url: String(url), line: line, col: col, stack: error ? error.stack : '' });
   return false;
 };
 window.addEventListener('unhandledrejection', function(event) {
   console.error('[JS UNHANDLED PROMISE]', event.reason);
-  if (typeof sendNativeCommand === 'function') {
-    sendNativeCommand({ cmd: 'js_error', msg: 'Unhandled Promise: ' + String(event.reason) });
-  }
+  sendNativeCommand({ cmd: 'js_error', msg: 'Unhandled Promise: ' + String(event.reason) });
 });
 
 const state = {
@@ -24,7 +64,7 @@ const state = {
   user: {
     gamertag: 'Xbox Player',
     puid: '',
-    presence: (typeof localStorage !== 'undefined' && localStorage.getItem('xodus_user_presence')) || 'Active',
+    presence: safeGetStorage('xodus_user_presence', 'Active'),
     gamerscore: '0',
     avatar: 'https://assets.xboxservices.com/assets/default_avatar.png',
     hasGamePass: false,
@@ -169,6 +209,14 @@ function setupSearchAndFilters() {
   });
 }
 
+function setFilter(filterId) {
+  state.filter = filterId || 'all';
+  const pills = document.querySelectorAll('#filterPills .pill');
+  pills.forEach(p => p.classList.toggle('active', p.getAttribute('data-filter') === state.filter));
+  renderGames();
+}
+window.setFilter = setFilter;
+
 function switchTab(tabId) {
   if (tabId === 'gamepass') {
     state.activeTab = 'library';
@@ -196,6 +244,7 @@ function switchTab(tabId) {
   if (tabId === 'friends') renderFriends();
   else if (tabId === 'library') renderGames();
 }
+window.switchTab = switchTab;
 
 // User Rendering
 function renderUser() {
@@ -769,36 +818,37 @@ function joinFriendGame(gamertag, gameTitle) {
 
 function updatePresence(stateVal) {
   state.user.presence = stateVal;
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('xodus_user_presence', stateVal);
-  }
+  safeSetStorage('xodus_user_presence', stateVal);
   renderUser();
   const label = stateVal === 'Active' ? 'Online' : (stateVal === 'Away' ? 'Away' : 'Invisible');
   showToast(`Presence status updated to: ${label}`);
   sendNativeCommand({ cmd: 'set_presence', state: stateVal });
 }
+window.updatePresence = updatePresence;
 
 function refreshUserLicenses() {
-  showToast('Synchronizing Microsoft Collections & Game Pass catalog...');
+  showToast('Querying Microsoft Entitlements & Licenses...');
   sendNativeCommand({ cmd: 'sync_licenses' });
 }
+window.refreshUserLicenses = refreshUserLicenses;
 
 function refreshFriends() {
-  showToast('Updating friends presence...');
+  showToast('Updating Xbox Live social graph...');
   sendNativeCommand({ cmd: 'get_friends' });
 }
+window.refreshFriends = refreshFriends;
 
 window.launchGame = launchGame;
 window.installGame = installGame;
 window.uninstallGame = uninstallGame;
+window.promptUninstallGame = promptUninstallGame;
+window.confirmUninstallGame = confirmUninstallGame;
+window.closeUninstallModal = closeUninstallModal;
 window.syncGameSaves = syncGameSaves;
 window.syncAllSaves = syncAllSaves;
 window.pullSave = pullSave;
 window.pushSave = pushSave;
 window.joinFriendGame = joinFriendGame;
-window.updatePresence = updatePresence;
-window.refreshUserLicenses = refreshUserLicenses;
-window.refreshFriends = refreshFriends;
 window.switchTab = switchTab;
 
 // Progress Bar
@@ -861,9 +911,7 @@ function setupIPCBridge() {
       if (profile.gamerScore) state.user.gamerscore = profile.gamerScore;
       if (profile.presence) {
         state.user.presence = profile.presence;
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('xodus_user_presence', profile.presence);
-        }
+        safeSetStorage('xodus_user_presence', profile.presence);
       }
       if (profile.hasGamePass !== undefined) {
         state.hasGamePassSubscription = !!profile.hasGamePass;
