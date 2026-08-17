@@ -411,7 +411,6 @@ function updateHeroBanner(game) {
       });
       actionsEl.appendChild(playBtn);
 
-      const syncBtn = document.createElement('button');
       const manageBtn = document.createElement('button');
       manageBtn.className = 'btn btn-secondary btn-lg';
       manageBtn.id = 'heroManageBtn';
