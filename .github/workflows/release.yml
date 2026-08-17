@@ -178,12 +178,10 @@ EOF
           chmod +x "$APPDIR/AppRun"
           chmod +x "$APPDIR/usr/bin"/*
 
-          # 5. Build AppImage
+          # 5. Build Single Self-Contained AppImage
           appimagetool "$APPDIR" "dist/packages/nocts-xodus-gui.AppImage"
-          cp -f "dist/packages/nocts-xodus-gui.AppImage" "dist/packages/xodus-linux-x86_64.AppImage"
-          cp -f "dist/packages/nocts-xodus-gui.AppImage" "dist/packages/Xodus-x86_64.AppImage"
 
-          echo "AppImage packaging complete:"
+          echo "AppImage packaging complete (Single AppImage):"
           ls -lh dist/packages/
 
       - name: Publish GitHub Release
@@ -200,12 +198,19 @@ EOF
             TITLE="noct's xodus ${TAG_NAME}"
           fi
           
-          # Create or get existing release
+          # Delete existing old release if present to refresh release timestamp & target commit
+          OLD_RELEASE_ID=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG_NAME} | jq -r '.id // empty')
+          if [ -n "$OLD_RELEASE_ID" ] && [ "$OLD_RELEASE_ID" != "null" ]; then
+            echo "Removing stale release $OLD_RELEASE_ID to recreate with latest commit timestamp..."
+            curl -s -X DELETE -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${OLD_RELEASE_ID}
+          fi
+
+          # Create fresh release pointing to latest HEAD commit
           CREATE_RES=$(curl -s -X POST \
             -H "Authorization: token ${AUTH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/${{ github.repository }}/releases \
-            -d "{\"tag_name\":\"${TAG_NAME}\",\"name\":\"${TITLE}\",\"body\":\"Automated release of noct's xodus (${TAG_NAME}) - Xbox GDK compatibility runtime and manager for Linux.\",\"draft\":false,\"prerelease\":false}")
+            -d "{\"tag_name\":\"${TAG_NAME}\",\"target_commitish\":\"${{ github.sha }}\",\"name\":\"${TITLE}\",\"body\":\"Latest release of noct's xodus (${TAG_NAME}) - Xbox GDK compatibility runtime and manager for Linux.\",\"draft\":false,\"prerelease\":false}")
           
           RELEASE_ID=$(echo "$CREATE_RES" | jq -r '.id // empty')
           if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
@@ -213,17 +218,20 @@ EOF
           fi
           echo "GitHub Release ID: $RELEASE_ID"
 
-          # Upload all packages in dist/packages/
+          # Upload single AppImage package
           if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
+            # Clean any old assets
+            ALL_ASSETS=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets | jq -r '.[].id // empty')
+            for aid in $ALL_ASSETS; do
+              if [ -n "$aid" ] && [ "$aid" != "null" ]; then
+                curl -s -X DELETE -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/assets/${aid}
+              fi
+            done
+
             for file in dist/packages/*; do
               [ -f "$file" ] || continue
               filename=$(basename "$file")
               echo "Uploading asset: $filename to release $RELEASE_ID..."
-              EXISTING_ASSET_ID=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets | jq -r ".[] | select(.name==\"$filename\") | .id // empty")
-              if [ -n "$EXISTING_ASSET_ID" ]; then
-                echo "Overwriting existing asset: $EXISTING_ASSET_ID"
-                curl -s -X DELETE -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/assets/${EXISTING_ASSET_ID}
-              fi
               curl -s -X POST \
                 -H "Authorization: token ${AUTH_TOKEN}" \
                 -H "Content-Type: application/octet-stream" \
