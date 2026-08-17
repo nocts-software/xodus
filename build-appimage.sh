@@ -34,8 +34,17 @@ if [ -f "$SCRIPT_DIR/../xgameruntime/twinapi.appcore.dll.so" ]; then
     cp "$SCRIPT_DIR/../xgameruntime/twinapi.appcore.dll.so" "$APP_DIR/usr/lib/"
     cp "$SCRIPT_DIR/../xgameruntime/twinapi.appcore.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
 fi
-if [ -f "$SCRIPT_DIR/../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll" ]; then
+if [ -f "$SCRIPT_DIR/../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll.so" ]; then
+    cp "$SCRIPT_DIR/../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll.so" "$APP_DIR/usr/lib/"
     cp "$SCRIPT_DIR/../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
+fi
+if [ -f "$SCRIPT_DIR/../xgameruntime/windows.ui.core.textinput.dll.so" ]; then
+    cp "$SCRIPT_DIR/../xgameruntime/windows.ui.core.textinput.dll.so" "$APP_DIR/usr/lib/"
+    cp "$SCRIPT_DIR/../xgameruntime/windows.ui.core.textinput.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
+fi
+if [ -f "$SCRIPT_DIR/../xgameruntime/wintypes.dll.so" ]; then
+    cp "$SCRIPT_DIR/../xgameruntime/wintypes.dll.so" "$APP_DIR/usr/lib/"
+    cp "$SCRIPT_DIR/../xgameruntime/wintypes.dll" "$APP_DIR/usr/lib/" 2>/dev/null || true
 fi
 if [ -d "$SCRIPT_DIR/../xgameruntime/x86_64-unix" ]; then
     mkdir -p "$APP_DIR/usr/lib/x86_64-unix"

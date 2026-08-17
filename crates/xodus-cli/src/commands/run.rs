@@ -522,18 +522,11 @@ pub async fn run(
         "Windows.UI.ViewManagement.InputPane",
         "Windows.UI.ViewManagement.StatusBar",
         "Windows.UI.ViewManagement.Core.CoreInputView",
-        "Windows.Gaming.Input.Gamepad",
-        "Windows.Gaming.Input.RawGameController",
         "Windows.Gaming.Preview.GamesEnumeration.GameList",
+        "Windows.Gaming.XboxLive.Storage.GameSaveProvider",
+        "Windows.Internal.System.Profile.RegionPolicyEvaluator",
         "Windows.ApplicationModel.Core.CoreApplication",
         "Windows.UI.Core.CoreWindow",
-        "Windows.Devices.Geolocation.Geolocator",
-        "Windows.Devices.Enumeration.DeviceInformation",
-        "Windows.Storage.StorageFolder",
-        "Windows.Storage.ApplicationData",
-        "Windows.Storage.StorageFile",
-        "Windows.Security.Credentials.PasswordVault",
-        "Windows.Networking.Connectivity.NetworkInformation",
     ];
 
     for class_id in classes {
@@ -958,7 +951,14 @@ pub async fn run(
     } else {
         default_runtime_dir
     };
-    let dll_names = ["xgameruntime.dll", "twinapi.appcore.dll", "api-ms-win-core-psm-appnotify-l1-1-0.dll", "Microsoft.WindowsAppRuntime.Bootstrap.dll", "xgameruntime.dll.so", "twinapi.appcore.dll.so"];
+    let dll_names = [
+        "xgameruntime.dll", "xgameruntime.dll.so", "xgameruntime.so",
+        "twinapi.appcore.dll", "twinapi.appcore.dll.so", "twinapi.appcore.so",
+        "api-ms-win-core-psm-appnotify-l1-1-0.dll", "api-ms-win-core-psm-appnotify-l1-1-0.dll.so", "api-ms-win-core-psm-appnotify-l1-1-0.so",
+        "windows.ui.core.textinput.dll", "windows.ui.core.textinput.dll.so", "windows.ui.core.textinput.so",
+        "wintypes.dll", "wintypes.dll.so", "wintypes.so",
+        "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+    ];
     for dll in &dll_names {
         let src_dll = Path::new(&runtime_dir).join(dll);
         if src_dll.exists() {
@@ -1167,6 +1167,16 @@ pub async fn run(
                 let target_appnotify = dir.join("api-ms-win-core-psm-appnotify-l1-1-0.dll");
                 let _ = tokio::fs::remove_file(&target_appnotify).await;
                 let _ = tokio::fs::copy(appnotify, &target_appnotify).await;
+
+                let appnotify_so = appnotify.with_extension("dll.so");
+                if appnotify_so.exists() {
+                    let target_appnotify_so = dir.join("api-ms-win-core-psm-appnotify-l1-1-0.dll.so");
+                    let target_appnotify_short_so = dir.join("api-ms-win-core-psm-appnotify-l1-1-0.so");
+                    let _ = tokio::fs::remove_file(&target_appnotify_so).await;
+                    let _ = tokio::fs::remove_file(&target_appnotify_short_so).await;
+                    let _ = tokio::fs::copy(&appnotify_so, &target_appnotify_so).await;
+                    let _ = tokio::fs::copy(&appnotify_so, &target_appnotify_short_so).await;
+                }
             }
             let target_cfg = dir.join("MicrosoftGame.config");
             let _ = tokio::fs::remove_file(&target_cfg).await;
@@ -1248,7 +1258,12 @@ pub async fn run(
             if let Some(ref appnotify) = appnotify_dll {
                 let dst = system32.join("api-ms-win-core-psm-appnotify-l1-1-0.dll");
                 let _ = tokio::fs::remove_file(&dst).await;
-                let _ = tokio::fs::copy(appnotify, dst).await;
+                let _ = tokio::fs::copy(appnotify, &dst).await;
+                let appnotify_so = appnotify.with_extension("dll.so");
+                if appnotify_so.exists() {
+                    let _ = tokio::fs::copy(&appnotify_so, system32.join("api-ms-win-core-psm-appnotify-l1-1-0.dll.so")).await;
+                    let _ = tokio::fs::copy(&appnotify_so, system32.join("api-ms-win-core-psm-appnotify-l1-1-0.so")).await;
+                }
             }
         }
 
@@ -1271,18 +1286,11 @@ pub async fn run(
                     "Windows.UI.ViewManagement.InputPane",
                     "Windows.UI.ViewManagement.StatusBar",
                     "Windows.UI.ViewManagement.Core.CoreInputView",
-                    "Windows.Gaming.Input.Gamepad",
-                    "Windows.Gaming.Input.RawGameController",
                     "Windows.Gaming.Preview.GamesEnumeration.GameList",
+                    "Windows.Gaming.XboxLive.Storage.GameSaveProvider",
+                    "Windows.Internal.System.Profile.RegionPolicyEvaluator",
                     "Windows.ApplicationModel.Core.CoreApplication",
                     "Windows.UI.Core.CoreWindow",
-                    "Windows.Devices.Geolocation.Geolocator",
-                    "Windows.Devices.Enumeration.DeviceInformation",
-                    "Windows.Storage.StorageFolder",
-                    "Windows.Storage.ApplicationData",
-                    "Windows.Storage.StorageFile",
-                    "Windows.Security.Credentials.PasswordVault",
-                    "Windows.Networking.Connectivity.NetworkInformation",
                 ];
                 let mut modified = false;
                 for class_id in classes {
