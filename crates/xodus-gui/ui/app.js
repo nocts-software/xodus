@@ -826,15 +826,151 @@ function installGame(title, path) {
     return;
   }
 
+  showInstallModal(game || { title, path, productId: '' });
+}
+
+window.showInstallModal = function(game) {
+  const safeTitle = game.title || 'Game';
+  const prodId = game.productId || game.id || '';
+  const defPath = game.path || `/mnt/w11/XboxGames/${prodId}`;
+
+  state.pendingInstall = {
+    title: safeTitle,
+    path: defPath,
+    productId: prodId,
+    cover: game.cover || 'https://assets.xboxservices.com/assets/default_cover.png',
+    developer: game.developer || 'Xbox Game Studios',
+    packages: []
+  };
+
+  const modal = document.getElementById('installModal');
+  const titleEl = document.getElementById('installModalTitle');
+  const devEl = document.getElementById('installModalDev');
+  const coverEl = document.getElementById('installModalCover');
+  const sizeEl = document.getElementById('installModalSize');
+  const pathEl = document.getElementById('installModalPath');
+  const descEl = document.getElementById('installModalDesc');
+  const pkgListEl = document.getElementById('installPackageList');
+  const btnTextEl = document.getElementById('startInstallBtnText');
+
+  if (titleEl) titleEl.textContent = safeTitle;
+  if (devEl) devEl.textContent = `${game.developer || 'Xbox Game Studios'} • Windows PC`;
+  if (coverEl) coverEl.src = game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
+  if (sizeEl) sizeEl.textContent = 'Calculating download size...';
+  if (pathEl) pathEl.textContent = defPath;
+  if (descEl) descEl.textContent = 'Retrieving game overview and component manifest...';
+  if (pkgListEl) pkgListEl.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; padding: 6px 0;">Scanning available MSIXVC packages...</div>';
+  if (btnTextEl) btnTextEl.textContent = 'Start Installation';
+
+  if (modal) {
+    modal.classList.add('visible');
+    modal.style.display = 'flex';
+  }
+
+  // Request full Display Catalog info and package breakdown from backend
+  sendNativeCommand({
+    cmd: 'get_install_details',
+    title: safeTitle,
+    productId: prodId,
+    path: defPath
+  });
+};
+
+window.onInstallDetailsLoaded = function(details) {
+  if (!state.pendingInstall) return;
+  state.pendingInstall.details = details;
+  state.pendingInstall.packages = (details.packages || []).map(p => ({ ...p }));
+
+  const titleEl = document.getElementById('installModalTitle');
+  const devEl = document.getElementById('installModalDev');
+  const coverEl = document.getElementById('installModalCover');
+  const descEl = document.getElementById('installModalDesc');
+  const pathEl = document.getElementById('installModalPath');
+
+  if (titleEl && details.title) titleEl.textContent = details.title;
+  if (devEl && details.developer) devEl.textContent = `${details.developer} • Windows PC`;
+  if (coverEl && (details.heroImage || details.coverImage)) coverEl.src = details.heroImage || details.coverImage;
+  if (descEl && details.description) descEl.textContent = details.description;
+  if (pathEl && details.installPath) pathEl.textContent = details.installPath;
+
+  renderInstallPackages();
+};
+
+function renderInstallPackages() {
+  const pkgListEl = document.getElementById('installPackageList');
+  const sizeEl = document.getElementById('installModalSize');
+  const btnTextEl = document.getElementById('startInstallBtnText');
+  if (!pkgListEl || !state.pendingInstall || !state.pendingInstall.packages) return;
+
+  pkgListEl.innerHTML = '';
+  let totalBytes = 0;
+
+  state.pendingInstall.packages.forEach((pkg, index) => {
+    if (pkg.selected) {
+      totalBytes += (pkg.sizeBytes || 0);
+    }
+
+    const item = document.createElement('div');
+    item.className = `package-item ${pkg.required ? 'disabled' : ''}`;
+    item.innerHTML = `
+      <label class="package-item-left" style="cursor: ${pkg.required ? 'default' : 'pointer'};">
+        <input type="checkbox" class="pkg-checkbox" ${pkg.selected ? 'checked' : ''} ${pkg.required ? 'disabled' : ''} data-index="${index}">
+        <span>${pkg.name || 'Component'}</span>
+      </label>
+      <span class="package-item-size">${pkg.sizeFormatted || 'Standard'}</span>
+    `;
+
+    const checkbox = item.querySelector('.pkg-checkbox');
+    if (checkbox && !pkg.required) {
+      checkbox.addEventListener('change', (e) => {
+        state.pendingInstall.packages[index].selected = e.target.checked;
+        renderInstallPackages();
+      });
+    }
+
+    pkgListEl.appendChild(item);
+  });
+
+  const formattedTotal = formatBytesJS(totalBytes);
+  if (sizeEl) sizeEl.textContent = totalBytes > 0 ? formattedTotal : (state.pendingInstall.details?.totalSizeFormatted || 'Standard (~15-45 GB)');
+  if (btnTextEl) btnTextEl.textContent = totalBytes > 0 ? `Start Installation (${formattedTotal})` : 'Start Installation';
+}
+
+function formatBytesJS(bytes) {
+  if (!bytes || bytes <= 0) return 'Standard (~15-45 GB)';
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+window.closeInstallModal = function() {
+  const modal = document.getElementById('installModal');
+  if (modal) {
+    modal.classList.remove('visible');
+    modal.style.display = 'none';
+  }
+  state.pendingInstall = null;
+};
+
+window.confirmStartInstall = function() {
+  if (!state.pendingInstall) return;
+  const { title, path, productId, packages } = state.pendingInstall;
+  const selectedPackages = (packages || []).filter(p => p.selected).map(p => p.id);
+
+  closeInstallModal();
+
   showToast(`Connecting to Microsoft Delivery Optimization for ${title}...`);
   showProgress(`Connecting to Microsoft Delivery Optimization...`, 5, 'Connecting');
   sendNativeCommand({
     cmd: 'install_game',
     title: title,
-    productId: game ? (game.productId || game.id) : '',
-    path: path
+    productId: productId,
+    path: path,
+    selectedPackages: selectedPackages
   });
-}
+};
 
 
 function syncGameSaves(path) {

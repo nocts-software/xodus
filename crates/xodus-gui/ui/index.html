@@ -381,6 +381,63 @@
         </button>
       </div>
     </div>
+  <!-- Game Installation Details & Optional Packages Modal -->
+  <div class="modal-overlay" id="installModal" style="display: none;">
+    <div class="modal-content install-modal-content">
+      <div class="install-modal-header">
+        <img id="installModalCover" src="" class="install-modal-thumb" alt="Cover">
+        <div class="install-modal-meta">
+          <div class="install-modal-tag" id="installModalTag">WINDOWS PC • MSIXVC</div>
+          <h2 id="installModalTitle" class="install-modal-title">Game Title</h2>
+          <div id="installModalDev" class="install-modal-dev">Developer • Windows PC</div>
+        </div>
+        <button class="install-modal-close" onclick="closeInstallModal()" title="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="install-modal-body">
+        <!-- Download Overview Grid -->
+        <div class="install-summary-row">
+          <div class="install-summary-card">
+            <span class="summary-label">Estimated Download Size</span>
+            <span class="summary-value" id="installModalSize">Calculating...</span>
+          </div>
+          <div class="install-summary-card">
+            <span class="summary-label">Install Location</span>
+            <span class="summary-value install-path-val" id="installModalPath">/mnt/w11/XboxGames/...</span>
+          </div>
+        </div>
+
+        <!-- Optional Packages / Components Section -->
+        <div class="install-packages-section" id="installPackagesSection">
+          <div class="section-heading">Installation Components & Packages</div>
+          <div class="package-list" id="installPackageList">
+            <!-- Dynamically populated package items -->
+          </div>
+        </div>
+
+        <!-- Description synopsis -->
+        <div class="install-desc-section">
+          <div class="section-heading">About This Game</div>
+          <div class="install-desc-text" id="installModalDesc">Loading game overview...</div>
+        </div>
+      </div>
+
+      <div class="install-modal-footer">
+        <button class="btn btn-secondary" onclick="closeInstallModal()">Cancel</button>
+        <button class="btn btn-primary" id="startInstallBtn" onclick="confirmStartInstall()">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span id="startInstallBtnText">Start Installation</span>
+        </button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

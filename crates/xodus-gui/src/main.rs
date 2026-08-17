@@ -81,6 +81,23 @@ fn is_valid_store_id(id: &str) -> bool {
     is_valid_pc_big_id(id) || id.contains('.') || id.contains('_')
 }
 
+fn format_bytes(bytes: i64) -> String {
+    if bytes <= 0 {
+        return "Standard (~15-45 GB)".to_string();
+    }
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.2} GB", b / GB)
+    } else if b >= MB {
+        format!("{:.1} MB", b / MB)
+    } else {
+        format!("{:.0} KB", b / KB)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct InstalledGameInfo {
     folder_name: String,
@@ -1231,6 +1248,153 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 });
                             }
+                        }
+                        "get_install_details" => {
+                            let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("Game").to_string();
+                            let product_id = v.get("productId").or_else(|| v.get("id")).and_then(|p| p.as_str()).unwrap_or("").to_string();
+                            let path = v.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                            let proxy_tokio = proxy_ipc.clone();
+
+                            rt.spawn(async move {
+                                let mut target_id = product_id.clone();
+                                if target_id.len() != 12 || !target_id.chars().all(|c| c.is_alphanumeric()) {
+                                    if let Ok(db) = xodus::db::Database::open_default() {
+                                        if let Ok(products) = db.get_all_catalog_products() {
+                                            for p in products {
+                                                if (p.title.eq_ignore_ascii_case(&title) || normalize_title(&p.title) == normalize_title(&title)) && p.product_id.len() == 12 {
+                                                    target_id = p.product_id;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let client = reqwest::Client::new();
+                                let mut res_title = title.clone();
+                                let mut res_developer = "Xbox Game Studios".to_string();
+                                let mut res_description = "Experience rich gameplay, seamless cloud synchronization, and full controller support on PC.".to_string();
+                                let mut res_cover = xodus::api::xbox::DEFAULT_COVER_URL.to_string();
+                                let mut res_hero = String::new();
+                                let mut total_bytes: i64 = 0;
+                                let mut packages_json = Vec::new();
+
+                                if target_id.len() == 12 {
+                                    let url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products/{target_id}?market=US&languages=en-us");
+                                    if let Ok(resp) = client.get(&url).header("MS-CV", "0.1").send().await {
+                                        if resp.status().is_success() {
+                                            if let Ok(json_val) = resp.json::<serde_json::Value>().await {
+                                                if let Some(prod) = json_val.get("Product") {
+                                                    if let Some(props) = prod.get("LocalizedProperties").and_then(|p| p.as_array()).and_then(|a| a.first()) {
+                                                        if let Some(t) = props.get("ProductTitle").and_then(|t| t.as_str()) {
+                                                            if !t.is_empty() { res_title = t.to_string(); }
+                                                        }
+                                                        if let Some(d) = props.get("DeveloperName").and_then(|d| d.as_str()) {
+                                                            if !d.is_empty() { res_developer = d.to_string(); }
+                                                        }
+                                                        if let Some(desc) = props.get("ProductDescription").and_then(|d| d.as_str()) {
+                                                            if !desc.is_empty() { res_description = desc.to_string(); }
+                                                        }
+                                                        if let Some(imgs) = props.get("Images").and_then(|i| i.as_array()) {
+                                                            for img in imgs {
+                                                                let purpose = img.get("ImagePurpose").and_then(|p| p.as_str()).unwrap_or("");
+                                                                let uri = img.get("Uri").and_then(|u| u.as_str()).unwrap_or("");
+                                                                let full_uri = if uri.starts_with("//") { format!("https:{uri}") } else { uri.to_string() };
+                                                                if purpose == "Poster" || purpose == "BoxArt" {
+                                                                    res_cover = full_uri.clone();
+                                                                }
+                                                                if purpose == "TitledHeroArt" || purpose == "SuperHeroArt" || purpose == "Hero" {
+                                                                    if res_hero.is_empty() { res_hero = full_uri; }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Extract packages
+                                                    if let Some(skus) = prod.get("DisplaySkuAvailabilities").and_then(|s| s.as_array()) {
+                                                        let mut seen_pkgs = std::collections::HashSet::new();
+                                                        for sku_obj in skus {
+                                                            if let Some(pkgs) = sku_obj.get("Sku").and_then(|s| s.get("Properties")).and_then(|p| p.get("Packages")).and_then(|pk| pk.as_array()) {
+                                                                for pkg in pkgs {
+                                                                    let is_desktop = pkg.get("PlatformDependencies").and_then(|pd| pd.as_array()).map(|arr| {
+                                                                        arr.iter().any(|dep| {
+                                                                            let p = dep.get("PlatformName").and_then(|pn| pn.as_str()).unwrap_or("").to_lowercase();
+                                                                            p.contains("desktop") || p.contains("universal") || p == "pc" || p == "windows"
+                                                                        })
+                                                                    }).unwrap_or(false);
+
+                                                                    if !is_desktop { continue; }
+
+                                                                    let pkg_id = pkg.get("PackageId").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                                                                    let content_id = pkg.get("ContentId").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                                                                    let key = if !content_id.is_empty() { content_id.clone() } else { pkg_id.clone() };
+                                                                    if key.is_empty() || seen_pkgs.contains(&key) { continue; }
+                                                                    seen_pkgs.insert(key);
+
+                                                                    let size = pkg.get("MaxDownloadSizeInBytes").and_then(|s| s.as_i64()).unwrap_or(0);
+                                                                    let format_type = pkg.get("PackageFormat").and_then(|f| f.as_str()).unwrap_or("MSIXVC");
+                                                                    let app_name = pkg.get("Applications").and_then(|a| a.as_array()).and_then(|arr| arr.first()).and_then(|app| app.get("ApplicationId")).and_then(|ai| ai.as_str()).unwrap_or("");
+
+                                                                    let is_base = packages_json.is_empty();
+                                                                    let pkg_name = if is_base {
+                                                                        format!("Base Game ({format_type})")
+                                                                    } else if !app_name.is_empty() {
+                                                                        format!("Optional Component: {app_name}")
+                                                                    } else {
+                                                                        format!("Additional Content Pack ({format_type})")
+                                                                    };
+
+                                                                    total_bytes += size;
+                                                                    packages_json.push(serde_json::json!({
+                                                                        "id": if !content_id.is_empty() { content_id } else { pkg_id },
+                                                                        "name": pkg_name,
+                                                                        "sizeBytes": size,
+                                                                        "sizeFormatted": format_bytes(size),
+                                                                        "required": is_base,
+                                                                        "selected": true
+                                                                    }));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if packages_json.is_empty() {
+                                    packages_json.push(serde_json::json!({
+                                        "id": "base_pkg",
+                                        "name": "Base Game Package (MSIXVC)",
+                                        "sizeBytes": 0,
+                                        "sizeFormatted": "Standard (~15-45 GB)",
+                                        "required": true,
+                                        "selected": true
+                                    }));
+                                }
+
+                                let safe_title: String = res_title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect();
+                                let dest_dir = if !path.is_empty() { path.clone() } else { format!("/mnt/w11/XboxGames/{}", safe_title.trim()) };
+
+                                let details_payload = serde_json::json!({
+                                    "productId": target_id,
+                                    "title": res_title,
+                                    "developer": res_developer,
+                                    "description": res_description,
+                                    "coverImage": res_cover,
+                                    "heroImage": if !res_hero.is_empty() { res_hero } else { res_cover },
+                                    "totalSizeBytes": total_bytes,
+                                    "totalSizeFormatted": if total_bytes > 0 { format_bytes(total_bytes) } else { "Estimated ~15-45 GB".to_string() },
+                                    "installPath": dest_dir,
+                                    "packages": packages_json
+                                });
+
+                                if let Ok(payload_str) = serde_json::to_string(&details_payload) {
+                                    let script = format!("if (window.onInstallDetailsLoaded) window.onInstallDetailsLoaded({payload_str});");
+                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                }
+                            });
                         }
                         "install_game" => {
                             let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("Game").to_string();
