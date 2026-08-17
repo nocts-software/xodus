@@ -55,6 +55,13 @@ window.addEventListener('unhandledrejection', function(event) {
   sendNativeCommand({ cmd: 'js_error', msg: 'Unhandled Promise: ' + String(event.reason) });
 });
 
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('button') || e.target.closest('.pill') || e.target.closest('.nav-item') || e.target.closest('.game-card') || e.target.closest('.dropdown-trigger') || e.target.closest('.dropdown-item');
+  if (btn) {
+    console.log('[CLICK]', btn.tagName, btn.id || btn.className);
+  }
+}, true);
+
 const state = {
   activeTab: 'library',
   filter: 'all',

@@ -38,7 +38,11 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  user-select: none;
+}
+
+button, input, select, textarea, a, .btn, .pill, .nav-item, .win-btn, .game-card, .sidebar-installed-item, .sidebar-installed-play, .dropdown-trigger, .dropdown-item {
+  pointer-events: auto !important;
+  cursor: pointer;
 }
 
 body {
