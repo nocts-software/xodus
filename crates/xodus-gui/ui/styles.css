@@ -1268,7 +1268,7 @@ body {
 }
 
 .modal-content {
-  background: var(--bg-surface);
+  background: var(--bg-elevated);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
   padding: 32px;
@@ -1287,7 +1287,7 @@ body {
 
 .save-option-card {
   flex: 1;
-  background: var(--bg-surface-hover);
+  background: var(--bg-card-hover);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md);
   padding: 16px;
