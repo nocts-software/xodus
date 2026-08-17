@@ -651,6 +651,7 @@ body {
   object-fit: cover;
   object-position: center top;
   filter: brightness(0.85);
+  pointer-events: none;
 }
 
 .hero-overlay {
@@ -661,6 +662,7 @@ body {
   height: 100%;
   background: linear-gradient(90deg, rgba(24, 24, 24, 0.95) 0%, rgba(24, 24, 24, 0.6) 45%, rgba(24, 24, 24, 0.2) 100%),
               linear-gradient(0deg, rgba(24, 24, 24, 0.95) 0%, transparent 60%);
+  pointer-events: none;
 }
 
 .hero-content {
@@ -1249,12 +1251,16 @@ body {
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  opacity: 0;
-  animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+
+.modal-overlay.visible {
+  display: flex !important;
+  pointer-events: auto !important;
 }
 
 .modal-content {

@@ -727,14 +727,20 @@ window.showCloudSyncDialog = function(path, localInfo, cloudInfo) {
   const modal = document.getElementById('cloudSyncModal');
   document.getElementById('localSaveInfo').innerText = localInfo;
   document.getElementById('cloudSaveInfo').innerText = cloudInfo;
-  modal.dataset.path = path;
-  modal.style.display = 'flex';
+  if (modal) {
+    modal.dataset.path = path;
+    modal.classList.add('visible');
+    modal.style.display = 'flex';
+  }
 };
 
 window.resolveSaveConflict = function(choice) {
   const modal = document.getElementById('cloudSyncModal');
-  const path = modal.dataset.path;
-  modal.style.display = 'none';
+  const path = modal ? modal.dataset.path : '';
+  if (modal) {
+    modal.classList.remove('visible');
+    modal.style.display = 'none';
+  }
   
   showToast(choice === 'cloud' ? 'Downloading cloud save & launching...' : 'Uploading local save & launching...');
   sendNativeCommand({ cmd: 'resolve_save_conflict', path: path, choice: choice });
@@ -745,18 +751,27 @@ window.promptUninstallGame = function(title, path) {
   const modal = document.getElementById('uninstallModal');
   const titleEl = document.getElementById('uninstallGameTitle');
   if (titleEl) titleEl.textContent = title;
-  if (modal) modal.style.display = 'flex';
+  if (modal) {
+    modal.classList.add('visible');
+    modal.style.display = 'flex';
+  }
 };
 
 window.closeUninstallModal = function() {
   const modal = document.getElementById('uninstallModal');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.classList.remove('visible');
+    modal.style.display = 'none';
+  }
   state.pendingUninstall = null;
 };
 
 window.confirmUninstallGame = function() {
   const modal = document.getElementById('uninstallModal');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.classList.remove('visible');
+    modal.style.display = 'none';
+  }
   if (!state.pendingUninstall) return;
   const { title, path } = state.pendingUninstall;
   state.pendingUninstall = null;
