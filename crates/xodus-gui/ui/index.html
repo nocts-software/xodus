@@ -316,8 +316,8 @@
 
             <div class="settings-card">
               <h3>Default Game Storage Path</h3>
-              <p>Mounted Windows or custom games storage directory.</p>
-              <input type="text" class="form-input" id="storagePathInput" value="/mnt/w11/XboxGames">
+              <p>Default game installation directory or custom games storage path.</p>
+              <input type="text" class="form-input" id="storagePathInput" value="~/Games" placeholder="~/Games">
             </div>
 
             <div class="settings-card">
@@ -361,7 +361,7 @@
         </div>
         <div class="status-footer-row">
           <span class="status-metric-bytes" id="statusBytes">0 B / 0 B</span>
-          <span class="status-path-hint" id="statusDestPath">/mnt/w11/XboxGames</span>
+          <span class="status-path-hint" id="statusDestPath">~/Games</span>
         </div>
       </div>
       <div class="status-actions-group">
@@ -484,7 +484,7 @@
           </div>
           <div class="install-summary-card">
             <span class="summary-label">Install Location</span>
-            <span class="summary-value install-path-val" id="installModalPath">/mnt/w11/XboxGames/...</span>
+            <span class="summary-value install-path-val" id="installModalPath">~/Games/...</span>
           </div>
         </div>
 

@@ -66,6 +66,7 @@ const state = {
   activeTab: 'library',
   filter: 'all',
   searchQuery: '',
+  storagePath: safeGetStorage('xodus_storage_path', '~/Games'),
   hasGamePassSubscription: false,
   gamePassTier: null,
   user: {
@@ -89,6 +90,7 @@ function initApp() {
   setupWindowControls();
   setupCustomDropdowns();
   setupSearchAndFilters();
+  setupSettingsControls();
   setupDownloadControls();
   renderUser();
   updateGamePassVisibility();
@@ -217,6 +219,43 @@ function setupSearchAndFilters() {
     });
   });
 }
+
+function setupSettingsControls() {
+  const storageInput = document.getElementById('storagePathInput');
+  if (storageInput) {
+    storageInput.value = state.storagePath || '~/Games';
+    const handleUpdate = () => {
+      const newPath = storageInput.value.trim() || '~/Games';
+      if (newPath !== state.storagePath) {
+        state.storagePath = newPath;
+        safeSetStorage('xodus_storage_path', newPath);
+        const statusDest = document.getElementById('statusDestPath');
+        if (statusDest) statusDest.textContent = newPath;
+        const installModalPath = document.getElementById('installModalPath');
+        if (installModalPath && state.pendingInstall) {
+          const sanitizedTitle = (state.pendingInstall.title || '').replace(/[\\/:*?"<>|]/g, '').trim();
+          installModalPath.textContent = `${newPath}/${sanitizedTitle}`;
+        }
+        sendNativeCommand({ cmd: 'set_storage_path', path: newPath });
+        showToast(`Default storage path updated to ${newPath}`);
+      }
+    };
+    storageInput.addEventListener('change', handleUpdate);
+    storageInput.addEventListener('blur', handleUpdate);
+  }
+}
+
+window.setStoragePath = function(path) {
+  if (!path) return;
+  state.storagePath = path;
+  safeSetStorage('xodus_storage_path', path);
+  const storageInput = document.getElementById('storagePathInput');
+  if (storageInput && document.activeElement !== storageInput) {
+    storageInput.value = path;
+  }
+  const statusDest = document.getElementById('statusDestPath');
+  if (statusDest) statusDest.textContent = path;
+};
 
 function setFilter(filterId) {
   state.filter = filterId || 'all';
@@ -454,7 +493,8 @@ function renderGames() {
     const gameTitle = game.title || 'Untitled';
     const gameDev = game.developer || 'Xbox';
     const gameSize = game.size || 'Standard';
-    const gamePath = game.path || `/mnt/w11/XboxGames/${game.productId || game.id || ''}`;
+    const basePath = state.storagePath || '~/Games';
+    const gamePath = game.path || `${basePath}/${game.productId || game.id || ''}`;
 
     const coverDiv = document.createElement('div');
     coverDiv.className = 'game-card-cover';
@@ -531,7 +571,8 @@ window.showGameDetailsModal = function(game) {
   const gameTitle = game.title || 'Untitled';
   const gameDev = game.developer || 'Xbox';
   const gameSize = game.size || 'Standard';
-  const gamePath = game.path || `/mnt/w11/XboxGames/${game.productId || game.id || ''}`;
+  const basePath = state.storagePath || '~/Games';
+  const gamePath = game.path || `${basePath}/${game.productId || game.id || ''}`;
   const isInstalled = !!game.installed;
   const isRunning = window.runningGames[gamePath] === true;
   
@@ -877,7 +918,8 @@ window.showInstallModal = function(game) {
   const safeTitle = game.title || 'Game';
   const prodId = game.productId || game.id || '';
   const sanitizedTitle = safeTitle.replace(/[\\/:*?"<>|]/g, '').trim();
-  const defPath = `/mnt/w11/XboxGames/${sanitizedTitle}`;
+  const basePath = state.storagePath || '~/Games';
+  const defPath = `${basePath}/${sanitizedTitle}`;
 
   state.pendingInstall = {
     title: safeTitle,

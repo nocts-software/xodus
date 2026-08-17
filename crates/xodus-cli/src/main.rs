@@ -8,12 +8,17 @@ mod license;
 mod package;
 mod webview;
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum SubCommand {
-    #[command(about = "Download msixvc or xsp files fo given game")]
+    #[command(
+        alias = "get",
+        alias = "install",
+        about = "Download msixvc or xsp files for a given game"
+    )]
     Download {
+        #[clap(help = "Product ID / BigId or game title (e.g. '9P2N57MC619K', 'Sea of Thieves')")]
         product: String,
-        #[arg(short, long)]
+        #[arg(short, long, help = "Store marketplace region code (e.g. 'us', 'neutral')")]
         market: Option<String>,
         #[arg(
             long,
@@ -38,7 +43,16 @@ enum SubCommand {
         #[arg(short, long)]
         market: Option<String>,
     },
+    #[command(
+        alias = "signin",
+        alias = "auth",
+        about = "Sign into Microsoft account via webview authentication window"
+    )]
     Login,
+    #[command(
+        alias = "signout",
+        about = "Sign out and clear local credentials"
+    )]
     Logout {
         #[arg(long, default_value_t = false, help = "Remove device license")]
         device: bool,
@@ -53,7 +67,7 @@ enum SubCommand {
         #[arg(
             long,
             default_value_t = false,
-            help = "Attempt to skip downloading NTFS metadata to be faste while missing some files"
+            help = "Attempt to skip downloading NTFS metadata to be faster while missing some files"
         )]
         try_skip_ntfs: bool,
         #[arg(short, long)]
@@ -62,16 +76,25 @@ enum SubCommand {
         market: Option<String>,
     },
     #[cfg(unix)]
-    #[command(about = "Run a Game in-place with xodus wine")]
+    #[command(
+        alias = "play",
+        alias = "launch",
+        alias = "start",
+        about = "Play or run an installed game with xodus wine / Proton"
+    )]
     Run {
+        #[clap(help = "Game directory path, game title, or product ID (e.g. 'Sea of Thieves', '9P2N57MC619K')")]
         source: String,
         #[arg(short, long, default_value = "wine", help = "Wine / Proton binary to use (default: wine)")]
         wine: String,
-        #[arg(short, long)]
+        #[arg(short, long, help = "Specific executable name to launch within game directory")]
         exe: Option<String>,
-        #[arg(short, long)]
+        #[arg(short, long, help = "Store market region code")]
         market: Option<String>,
     },
+
+    #[command(alias = "ui", about = "Launch the graphical desktop user interface")]
+    Gui,
 
     #[command(about = "Manage Xbox Live cloud saves (pull/push/status)")]
     Save {
@@ -105,7 +128,7 @@ enum SubCommand {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum MpsdAction {
     #[command(about = "List active multiplayer sessions for a title")]
     List {
@@ -123,8 +146,7 @@ enum MpsdAction {
     },
 }
 
-
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum SaveAction {
     #[command(about = "Pull cloud saves from Xbox Live to local storage")]
     Pull {
@@ -145,8 +167,7 @@ enum SaveAction {
     },
 }
 
-
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum ClepAction {
     #[command(
         about = "Generate a base64-encoded CLEP challenge (V2 and V4) from SMBIOS/disk serial data"
@@ -170,11 +191,115 @@ enum ClepAction {
     },
 }
 
-#[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[derive(Parser, Debug)]
+#[command(
+    name = "xodus",
+    version,
+    about = "Xodus - Native Xbox Game Pass & Microsoft Store GDK runtime for Linux",
+    long_about = "Xodus allows downloading, managing, and running Xbox Game Pass and Microsoft Store games natively on Linux with Proton, Wine, and XGameRuntime."
+)]
 struct CliArgs {
+    #[arg(
+        short = 'l',
+        long,
+        help = "Sign into Microsoft account via webview authentication window"
+    )]
+    login: bool,
+
+    #[arg(
+        short = 'd',
+        long,
+        value_name = "PRODUCT",
+        help = "Download a game package by Product ID / BigId or Title (e.g. '9P2N57MC619K', 'Sea of Thieves')"
+    )]
+    download: Option<String>,
+
+    #[arg(
+        short = 'p',
+        long,
+        value_name = "TARGET",
+        help = "Play / launch an installed game by title, product ID, or path"
+    )]
+    play: Option<String>,
+
+    #[arg(
+        short = 'r',
+        long,
+        value_name = "TARGET",
+        help = "Run / launch an installed game by title, product ID, or path (alias for --play)"
+    )]
+    run: Option<String>,
+
+    #[arg(
+        short = 's',
+        long,
+        help = "Display current Microsoft account, Xbox Live profile, and entitlement status"
+    )]
+    status: bool,
+
+    #[arg(
+        short = 'g',
+        long,
+        help = "Launch the graphical user interface"
+    )]
+    gui: bool,
+
+    #[arg(
+        short = 'w',
+        long,
+        default_value = "wine",
+        help = "Wine / Proton binary or wrapper command to use when launching"
+    )]
+    wine: String,
+
+    #[arg(
+        short = 'e',
+        long,
+        help = "Specific executable name to launch within game directory"
+    )]
+    exe: Option<String>,
+
+    #[arg(
+        short = 'm',
+        long,
+        help = "Store marketplace region code (e.g. 'us', 'neutral')"
+    )]
+    market: Option<String>,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Display download URLs instead of downloading (used with --download)"
+    )]
+    dry_run: bool,
+
     #[command(subcommand)]
-    command: SubCommand,
+    command: Option<SubCommand>,
+}
+
+fn launch_gui() -> ExitCode {
+    let mut candidates = Vec::new();
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(dir) = current_exe.parent() {
+            candidates.push(dir.join("xodus-gui"));
+        }
+    }
+    candidates.push(std::path::PathBuf::from("/usr/bin/xodus-gui"));
+    candidates.push(std::path::PathBuf::from("xodus-gui"));
+
+    for cand in candidates {
+        if cand.exists() || cand.to_string_lossy() == "xodus-gui" {
+            if let Ok(mut child) = std::process::Command::new(&cand).spawn() {
+                if let Ok(status) = child.wait() {
+                    if status.success() {
+                        return ExitCode::SUCCESS;
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("[XODUS] Error: xodus-gui binary not found.");
+    ExitCode::FAILURE
 }
 
 #[tokio::main]
@@ -188,11 +313,44 @@ async fn main() -> ExitCode {
         .unwrap();
     let args = CliArgs::parse();
 
+    // Map top-level command-line flags (--login, --download, --play, --run, --status, --gui) to subcommands
+    let target_command = if args.login {
+        Some(SubCommand::Login)
+    } else if let Some(product) = args.download {
+        Some(SubCommand::Download {
+            product,
+            market: args.market.clone(),
+            dry_run: args.dry_run,
+        })
+    } else if let Some(source) = args.play.or(args.run) {
+        Some(SubCommand::Run {
+            source,
+            wine: args.wine.clone(),
+            exe: args.exe.clone(),
+            market: args.market.clone(),
+        })
+    } else if args.status {
+        Some(SubCommand::Status)
+    } else if args.gui {
+        Some(SubCommand::Gui)
+    } else {
+        args.command
+    };
+
+    let Some(cmd) = target_command else {
+        // If no flags or subcommands given, show help
+        use clap::CommandFactory;
+        let mut cmd = CliArgs::command();
+        let _ = cmd.print_help();
+        println!();
+        return ExitCode::SUCCESS;
+    };
+
     xodus::secrets::init_secrets().expect("Unable to initialize credentials");
     let tokens = TokenManager::with_keychain_and_memory();
     xodus::tokens::device::ensure_device_credentials(&client, &tokens).await;
 
-    let code = match args.command {
+    let code = match cmd {
         SubCommand::Download {
             product,
             market,
@@ -215,6 +373,7 @@ async fn main() -> ExitCode {
         SubCommand::Login => commands::login::run(&client, &tokens).await,
         SubCommand::Logout { device } => commands::logout::run(&tokens, device).await,
         SubCommand::Status => commands::status::run(&client, &tokens).await,
+        SubCommand::Gui => launch_gui(),
 
         SubCommand::Extract {
             path,

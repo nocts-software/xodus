@@ -68,41 +68,7 @@ pub async fn run(
 }
 
 async fn resolve_game_path(target: &str) -> Option<PathBuf> {
-    let direct_path = PathBuf::from(target);
-    if direct_path.is_dir() {
-        return Some(direct_path);
-    }
-
-    // Check /mnt/w11/XboxGames/<target>
-    let default_root = PathBuf::from("/mnt/w11/XboxGames");
-    let candidate = default_root.join(target);
-    if candidate.is_dir() {
-        return Some(candidate);
-    }
-
-    // Search /mnt/w11/XboxGames/ for folder names or matching manifests
-    if let Ok(mut entries) = tokio::fs::read_dir(&default_root).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let p = entry.path();
-            if p.is_dir() {
-                let name = p.file_name().unwrap_or_default().to_string_lossy();
-                if name.eq_ignore_ascii_case(target) {
-                    return Some(p);
-                }
-                let content = p.join("Content");
-                let check_dir = if content.is_dir() { content } else { p.clone() };
-                for cfg_name in ["MicrosoftGame.config", "AppxManifest.xml", "appxmanifest.xml"] {
-                    if let Ok(xml) = tokio::fs::read_to_string(check_dir.join(cfg_name)).await {
-                        if xml.to_lowercase().contains(&target.to_lowercase()) {
-                            return Some(p);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
+    crate::commands::run::resolve_game_path(target)
 }
 
 async fn detect_title_id(game_dir: &Path) -> Option<String> {

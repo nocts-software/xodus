@@ -6,6 +6,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       tag:
@@ -17,7 +19,7 @@ on:
         required: false
         default: "noct's xodus v1.0.0"
   repository_dispatch:
-    types: [release-build, release, trigger-release]
+    types: [release-build, release, trigger-release, build-latest]
 
 permissions:
   contents: write
@@ -32,6 +34,8 @@ jobs:
     steps:
       - name: Checkout Xodus Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Toolchain & Dependencies
         run: |
@@ -44,7 +48,16 @@ jobs:
           cargo --version
           protoc --version 2>/dev/null || echo "protoc ready"
 
-      - name: Build XGameruntime Windows/Wine Runtime Libraries (Optional)
+          # Ensure appimagetool is available
+          if ! command -v appimagetool &>/dev/null; then
+            echo "Installing appimagetool..."
+            mkdir -p "$HOME/.local/bin"
+            curl -L -o "$HOME/.local/bin/appimagetool" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" || true
+            chmod +x "$HOME/.local/bin/appimagetool" 2>/dev/null || true
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+
+      - name: Build XGameruntime Windows/Wine Runtime Libraries
         run: |
           echo "=== [2/4] Checking and Building XGameruntime Libraries ==="
           if [ ! -d "../xgameruntime" ]; then
@@ -58,12 +71,14 @@ jobs:
         run: |
           echo "=== [3/4] Compiling Xodus Workspace with Cargo ==="
           export PATH="/opt/rust/cargo/bin:$HOME/.cargo/bin:$PATH"
+          # Clean GUI cached binary to ensure updated UI assets are re-embedded
+          rm -f target/release/xodus-gui target/release/deps/xodus_gui* target/release/deps/libxodus_gui* 2>/dev/null || true
           cargo build --release --workspace
 
       - name: Package Self-Contained AppImage
         run: |
           echo "=== [4/4] Packaging Self-Contained AppImage ==="
-          export PATH="/opt/rust/cargo/bin:$HOME/.cargo/bin:$PATH"
+          export PATH="/opt/rust/cargo/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export ARCH=x86_64
 
@@ -73,6 +88,7 @@ jobs:
           mkdir -p "$APPDIR/usr/bin"
           mkdir -p "$APPDIR/usr/lib"
           mkdir -p "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/scalable/apps"
           mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 
           # 1. Copy Compiled Rust Binaries
@@ -83,33 +99,89 @@ jobs:
             cp target/release/xodus-gui "$APPDIR/usr/bin/xodus-gui"
           fi
 
-          # 2. Copy xgameruntime Wine Libraries if present
+          # 2. Copy xgameruntime Wine Libraries
           if [ -f "../xgameruntime/xgameruntime.dll.so" ]; then
             cp -vf "../xgameruntime/xgameruntime.dll.so" "$APPDIR/usr/lib/"
+            cp -vf "../xgameruntime/xgameruntime.dll" "$APPDIR/usr/lib/" 2>/dev/null || true
           fi
           if [ -f "../xgameruntime/twinapi.appcore.dll.so" ]; then
             cp -vf "../xgameruntime/twinapi.appcore.dll.so" "$APPDIR/usr/lib/"
+            cp -vf "../xgameruntime/twinapi.appcore.dll" "$APPDIR/usr/lib/" 2>/dev/null || true
+          fi
+          if [ -f "../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll.so" ]; then
+            cp -vf "../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll.so" "$APPDIR/usr/lib/"
+            cp -vf "../xgameruntime/api-ms-win-core-psm-appnotify-l1-1-0.dll" "$APPDIR/usr/lib/" 2>/dev/null || true
+          fi
+          if [ -f "../xgameruntime/windows.ui.core.textinput.dll.so" ]; then
+            cp -vf "../xgameruntime/windows.ui.core.textinput.dll.so" "$APPDIR/usr/lib/"
+            cp -vf "../xgameruntime/windows.ui.core.textinput.dll" "$APPDIR/usr/lib/" 2>/dev/null || true
+          fi
+          if [ -f "../xgameruntime/wintypes.dll.so" ]; then
+            cp -vf "../xgameruntime/wintypes.dll.so" "$APPDIR/usr/lib/"
+            cp -vf "../xgameruntime/wintypes.dll" "$APPDIR/usr/lib/" 2>/dev/null || true
+          fi
+          if [ -d "../xgameruntime/x86_64-unix" ]; then
+            mkdir -p "$APPDIR/usr/lib/x86_64-unix"
+            cp -rf "../xgameruntime/x86_64-unix/"* "$APPDIR/usr/lib/x86_64-unix/" 2>/dev/null || true
           fi
 
           # 3. Create Desktop Integration & Icons
-          printf "[Desktop Entry]\nType=Application\nName=noct's xodus\nComment=Xbox GDK compatibility runtime and manager for Linux\nExec=xodus\nIcon=xodus\nCategories=Game;Utility;\nTerminal=true\n" > "$APPDIR/xodus.desktop"
-          cp "$APPDIR/xodus.desktop" "$APPDIR/usr/share/applications/xodus.desktop"
+          if [ -f "crates/xodus-gui/xodus-gui.desktop" ]; then
+            cp "crates/xodus-gui/xodus-gui.desktop" "$APPDIR/xodus-gui.desktop"
+            cp "crates/xodus-gui/xodus-gui.desktop" "$APPDIR/xodus.desktop"
+            cp "crates/xodus-gui/xodus-gui.desktop" "$APPDIR/usr/share/applications/xodus-gui.desktop"
+          else
+            printf "[Desktop Entry]\nType=Application\nName=noct's xodus\nComment=Xbox GDK compatibility runtime and manager for Linux\nExec=xodus\nIcon=xodus\nCategories=Game;Utility;\nTerminal=false\n" > "$APPDIR/xodus.desktop"
+            cp "$APPDIR/xodus.desktop" "$APPDIR/usr/share/applications/xodus.desktop"
+          fi
+
+          if [ -f "crates/xodus-gui/xodus-gui.svg" ]; then
+            cp "crates/xodus-gui/xodus-gui.svg" "$APPDIR/xodus-gui.svg"
+            cp "crates/xodus-gui/xodus-gui.svg" "$APPDIR/xodus.svg"
+            cp "crates/xodus-gui/xodus-gui.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/xodus-gui.svg"
+          fi
 
           if [ -f "assets/Icon/Icon512.png" ]; then
             cp "assets/Icon/Icon512.png" "$APPDIR/xodus.png"
             cp "assets/Icon/Icon512.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/xodus.png"
-          else
-            touch "$APPDIR/xodus.png"
           fi
 
           # 4. Create AppRun Dispatcher
-          printf '#!/usr/bin/env bash\nHERE="$(dirname "$(readlink -f "${0}")")"\nexport PATH="${HERE}/usr/bin:${PATH}"\nexport LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"\nexport XODUS_RUNTIME_PATH="${HERE}/usr/lib"\nexport WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"\n\n# Ensure WebKitGTK and GDK run reliably across all Wayland compositors (Bazzite, Fedora, SteamOS, GNOME, KDE)\nexport WEBKIT_DISABLE_DMABUF_RENDERER=1\nexport WEBKIT_DISABLE_COMPOSITING_MODE=1\n\nif [ "$1" = "service" ] || [ "$1" = "daemon" ]; then\n    shift\n    exec "${HERE}/usr/bin/xodus-service" "$@"\nfi\n\nif [ -z "$1" ] || [ "$1" = "gui" ] || [ "$1" = "--gui" ] || [ "$1" = "-g" ] || [ "$1" = "ui" ]; then\n    if [ "$1" = "gui" ] || [ "$1" = "--gui" ] || [ "$1" = "-g" ] || [ "$1" = "ui" ]; then shift; fi\n    exec "${HERE}/usr/bin/xodus-gui" "$@"\nfi\n\nif [ "$1" = "cli" ]; then shift; fi\nexec "${HERE}/usr/bin/xodus" "$@"\n' > "$APPDIR/AppRun"
+          cat << 'EOF' > "$APPDIR/AppRun"
+#!/usr/bin/env bash
+HERE="$(dirname "$(readlink -f "${0}")")"
+export PATH="${HERE}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
+export WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"
+
+# Ensure WebKitGTK and GDK run reliably across all Wayland compositors (Bazzite, Fedora, SteamOS, GNOME, KDE)
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+
+# If invoked without arguments, or explicitly with gui / --gui / -g / ui, launch graphical interface
+if [ -z "$1" ] || [ "$1" = "gui" ] || [ "$1" = "--gui" ] || [ "$1" = "-g" ] || [ "$1" = "ui" ]; then
+    if [ "$1" = "gui" ] || [ "$1" = "--gui" ] || [ "$1" = "-g" ] || [ "$1" = "ui" ]; then shift; fi
+    exec "${HERE}/usr/bin/xodus-gui" "$@"
+fi
+
+# If invoked as service/daemon
+if [ "$1" = "service" ] || [ "$1" = "daemon" ]; then
+    shift
+    exec "${HERE}/usr/bin/xodus-service" "$@"
+fi
+
+# Otherwise route all CLI arguments and subcommands (login, download, play, run, status, etc.) to xodus CLI
+if [ "$1" = "cli" ]; then shift; fi
+exec "${HERE}/usr/bin/xodus" "$@"
+EOF
           chmod +x "$APPDIR/AppRun"
           chmod +x "$APPDIR/usr/bin"/*
 
           # 5. Build AppImage
           appimagetool "$APPDIR" "dist/packages/nocts-xodus-gui.AppImage"
           cp -f "dist/packages/nocts-xodus-gui.AppImage" "dist/packages/xodus-linux-x86_64.AppImage"
+          cp -f "dist/packages/nocts-xodus-gui.AppImage" "dist/packages/Xodus-x86_64.AppImage"
 
           echo "AppImage packaging complete:"
           ls -lh dist/packages/
@@ -119,8 +191,14 @@ jobs:
           AUTH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Publishing Release to GitHub via REST API ==="
-          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || 'v1.0.0' }}"
-          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || 'noct''s xodus v1.0.0' }}"
+          TAG_NAME="${{ github.event.inputs.tag || github.event.release.tag_name || github.event.client_payload.version || '' }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "null" ]; then
+            TAG_NAME=$(git describe --tags --always 2>/dev/null || echo "v1.0.0")
+          fi
+          TITLE="${{ github.event.inputs.title || github.event.release.name || github.event.client_payload.title || '' }}"
+          if [ -z "$TITLE" ] || [ "$TITLE" = "null" ]; then
+            TITLE="noct's xodus ${TAG_NAME}"
+          fi
           
           # Create or get existing release
           CREATE_RES=$(curl -s -X POST \
@@ -136,21 +214,23 @@ jobs:
           echo "GitHub Release ID: $RELEASE_ID"
 
           # Upload all packages in dist/packages/
-          for file in dist/packages/*; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            echo "Uploading asset: $filename to release $RELEASE_ID..."
-            EXISTING_ASSET_ID=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets | jq -r ".[] | select(.name==\"$filename\") | .id // empty")
-            if [ -n "$EXISTING_ASSET_ID" ]; then
-              echo "Overwriting existing asset: $EXISTING_ASSET_ID"
-              curl -s -X DELETE -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/assets/${EXISTING_ASSET_ID}
-            fi
-            curl -s -X POST \
-              -H "Authorization: token ${AUTH_TOKEN}" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @"$file" \
-              "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${filename}"
-          done
+          if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
+            for file in dist/packages/*; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              echo "Uploading asset: $filename to release $RELEASE_ID..."
+              EXISTING_ASSET_ID=$(curl -s -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets | jq -r ".[] | select(.name==\"$filename\") | .id // empty")
+              if [ -n "$EXISTING_ASSET_ID" ]; then
+                echo "Overwriting existing asset: $EXISTING_ASSET_ID"
+                curl -s -X DELETE -H "Authorization: token ${AUTH_TOKEN}" https://api.github.com/repos/${{ github.repository }}/releases/assets/${EXISTING_ASSET_ID}
+              fi
+              curl -s -X POST \
+                -H "Authorization: token ${AUTH_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$file" \
+                "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${filename}"
+            done
+          fi
 
       - name: Dispatch Catalog Update to Central Releases Repo
         if: always()

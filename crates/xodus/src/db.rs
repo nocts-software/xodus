@@ -170,6 +170,12 @@ impl Database {
                 value TEXT NOT NULL,
                 expires_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -180,6 +186,29 @@ impl Database {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64
+    }
+
+    // --- Settings Methods ---
+    pub fn get_setting(&self, key: &str) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT value FROM app_settings WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Self::now_secs();
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![key, value, now],
+        )?;
+        Ok(())
     }
 
     // --- Catalog Methods ---

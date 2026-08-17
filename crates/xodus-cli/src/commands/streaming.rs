@@ -192,7 +192,7 @@ pub async fn run(
             source
         } else {
             let content_id = if Uuid::try_parse(&source).is_err() {
-                let content_id_task = get_content_id(client, source, market.clone()).await;
+                let content_id_task = get_content_id(client, tokens, source, market.clone()).await;
                 let Ok(content_id) = content_id_task else {
                     let Err(err) = content_id_task else {
                         eprintln!("Unknown Error");

@@ -15,8 +15,17 @@ pub async fn get_content_id(
 
     // If input is not a 12-character alphanumeric BigID, try searching user entitlements / catalog
     if resolved_product.len() != 12 || !resolved_product.chars().all(|c| c.is_ascii_alphanumeric()) {
-        let mkt = market.clone().unwrap_or_else(|| "neutral".to_string());
-        if let Ok(owned) = xodus::api::xbox::collections::get_user_owned_catalog_items(client, tokens, &mkt).await {
+        println!("[XODUS] Resolving game title '{}' to Microsoft Store product ID...", resolved_product);
+        if let Ok(xsts) = xodus::api::xbox::get_or_request_xsts(client, tokens, "http://xboxlive.com").await {
+            let auth_header = xodus::api::xbox::get_xsts_auth_header(xsts);
+            let owned = xodus::api::xbox::collections::get_user_owned_catalog_items(
+                client,
+                Some(tokens),
+                &auth_header,
+                None,
+                None,
+                None,
+            ).await;
             let p_lower = resolved_product.to_lowercase();
             if let Some(item) = owned.iter().find(|i| {
                 let t = i.title.to_lowercase();

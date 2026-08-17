@@ -2,6 +2,7 @@
 .env
 samples
 build/
+dist/
 *.AppImage
 *.db
 *.db-shm

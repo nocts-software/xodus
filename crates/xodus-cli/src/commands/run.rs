@@ -322,6 +322,211 @@ async fn ensure_service_running() {
 /// 4. Configures Wine prefix registry for GDK DLL overrides (`xgameruntime.dll`, `twinapi.appcore.dll`).
 /// 5. Launches game executable under Proton with DXVK/VKD3D-Proton and MangoHud.
 /// 6. Synchronizes updated local save data back to Xbox Live upon session completion.
+/// Resolves a game source argument to an absolute directory path.
+///
+/// Supports:
+/// 1. Direct path to a game directory (e.g. `/mnt/w11/XboxGames/Sea of Thieves`, `./Brotato`)
+/// 2. Game Title / DisplayName (e.g. `xodus play "Sea of Thieves"`, `xodus play Brotato`)
+/// 3. Microsoft Store Product ID / BigID (e.g. `xodus play 9P2N57MC619K`)
+/// 4. Scanning standard Xbox library directories (`/mnt/w11/XboxGames`, `~/XboxGames`, `~/.local/share/xodus/installed`, etc.)
+pub fn resolve_game_path(source: &str) -> Option<PathBuf> {
+    let p = Path::new(source);
+    if p.exists() {
+        return std::fs::canonicalize(p).ok();
+    }
+
+    // List of candidate library root paths to search
+    let mut search_roots = Vec::new();
+
+    // 1. Saved custom storage path in database
+    if let Ok(db) = xodus::db::Database::open_default() {
+        if let Ok(Some(saved)) = db.get_setting("storage_path") {
+            let trimmed = saved.trim();
+            if !trimmed.is_empty() {
+                if trimmed.starts_with("~/") {
+                    if let Ok(home) = std::env::var("HOME") {
+                        search_roots.push(PathBuf::from(home).join(&trimmed[2..]));
+                    }
+                } else if trimmed == "~" {
+                    if let Ok(home) = std::env::var("HOME") {
+                        search_roots.push(PathBuf::from(home));
+                    }
+                } else {
+                    search_roots.push(PathBuf::from(trimmed));
+                }
+            }
+        }
+    }
+
+    if let Ok(lib) = std::env::var("XODUS_LIBRARY_PATH").or_else(|_| std::env::var("XODUS_GAMES_PATH")) {
+        for part in lib.split(':') {
+            let trimmed = part.trim();
+            if !trimmed.is_empty() {
+                if trimmed.starts_with("~/") {
+                    if let Ok(home) = std::env::var("HOME") {
+                        search_roots.push(PathBuf::from(home).join(&trimmed[2..]));
+                    }
+                } else {
+                    search_roots.push(PathBuf::from(trimmed));
+                }
+            }
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let home_p = PathBuf::from(home);
+        search_roots.push(home_p.join("Games"));
+        search_roots.push(home_p.join("XboxGames"));
+        search_roots.push(home_p.join(".local/share/xodus/installed"));
+    }
+    search_roots.push(PathBuf::from("/mnt/w11/XboxGames"));
+    search_roots.push(PathBuf::from("/var/games/XboxGames"));
+
+    // Also check any mounted media under /run/media
+    if let Ok(entries) = std::fs::read_dir("/run/media") {
+        for u in entries.flatten() {
+            if let Ok(drives) = std::fs::read_dir(u.path()) {
+                for d in drives.flatten() {
+                    let cand_games = d.path().join("Games");
+                    if cand_games.is_dir() {
+                        search_roots.push(cand_games);
+                    }
+                    let cand_xbox = d.path().join("XboxGames");
+                    if cand_xbox.is_dir() {
+                        search_roots.push(cand_xbox);
+                    }
+                }
+            }
+        }
+    }
+
+    let source_clean = source.trim();
+    let source_lower = source_clean.to_lowercase();
+    let mut discovered_games = Vec::new();
+
+    for root in &search_roots {
+        if !root.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let folder_name = entry.file_name().to_string_lossy().to_string();
+                let folder_lower = folder_name.to_lowercase();
+
+                if folder_lower == "gamesave"
+                    || folder_lower == "wgs"
+                    || folder_lower.starts_with('.')
+                    || folder_lower.starts_with('$')
+                {
+                    continue;
+                }
+
+                // Check exact folder name match
+                if folder_lower == source_lower {
+                    return std::fs::canonicalize(&path).ok();
+                }
+
+                let mut title_match = false;
+                let mut id_match = false;
+                let mut game_title = folder_name.clone();
+
+                let config_paths = [
+                    path.join("MicrosoftGame.config"),
+                    path.join("MicrosoftGame.Config"),
+                    path.join("Content").join("MicrosoftGame.config"),
+                    path.join("Content").join("MicrosoftGame.Config"),
+                ];
+                for cp in &config_paths {
+                    if cp.exists() {
+                        if let Ok(content) = std::fs::read_to_string(cp) {
+                            if let Some(s_pos) = content.find("<StoreId>") {
+                                if let Some(e_pos) = content[s_pos..].find("</StoreId>") {
+                                    let sid = content[s_pos + 9..s_pos + e_pos].trim();
+                                    if sid.eq_ignore_ascii_case(source_clean) {
+                                        id_match = true;
+                                    }
+                                }
+                            }
+                            if let Some(d_pos) = content.find("DefaultDisplayName=\"") {
+                                if let Some(e_pos) = content[d_pos + 20..].find('"') {
+                                    let dname = &content[d_pos + 20..d_pos + 20 + e_pos];
+                                    game_title = dname.to_string();
+                                    let d_lower = dname.to_lowercase();
+                                    if d_lower == source_lower
+                                        || d_lower.contains(&source_lower)
+                                        || source_lower.contains(&d_lower)
+                                    {
+                                        title_match = true;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                let manifest_paths = [
+                    path.join("AppxManifest.xml"),
+                    path.join("appxmanifest.xml"),
+                    path.join("Content").join("AppxManifest.xml"),
+                    path.join("Content").join("appxmanifest.xml"),
+                ];
+                for mp in &manifest_paths {
+                    if mp.exists() {
+                        if let Ok(content) = std::fs::read_to_string(mp) {
+                            if let Some(d_pos) = content.find("<DisplayName>") {
+                                if let Some(e_pos) = content[d_pos..].find("</DisplayName>") {
+                                    let dname = content[d_pos + 13..d_pos + e_pos].trim();
+                                    if !dname.starts_with("ms-resource:") {
+                                        game_title = dname.to_string();
+                                        let d_lower = dname.to_lowercase();
+                                        if d_lower == source_lower
+                                            || d_lower.contains(&source_lower)
+                                            || source_lower.contains(&d_lower)
+                                        {
+                                            title_match = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(i_pos) = content.find("<Identity Name=\"") {
+                                if let Some(e_pos) = content[i_pos + 16..].find('"') {
+                                    let iname = &content[i_pos + 16..i_pos + 16 + e_pos];
+                                    if iname.eq_ignore_ascii_case(source_clean) {
+                                        id_match = true;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                discovered_games.push(format!("  • {} ({})", game_title, path.display()));
+
+                if id_match || title_match || folder_lower.contains(&source_lower) {
+                    return std::fs::canonicalize(&path).ok();
+                }
+            }
+        }
+    }
+
+    if !discovered_games.is_empty() {
+        eprintln!("\n[XODUS] Discovered installed games on system:");
+        for g in discovered_games {
+            eprintln!("{}", g);
+        }
+        eprintln!();
+    }
+
+    None
+}
+
+/// Run / play an installed game with xodus wine / Proton.
 pub async fn run(
     client: &reqwest::Client,
     tokens: &TokenManager,
@@ -335,11 +540,14 @@ pub async fn run(
 
     let mut lfiles: HashMap<String, SegmentFile> = HashMap::new();
 
-    let out: &Path = Path::new(&source);
-    let out_absolute = match std::fs::canonicalize(out) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to resolve path {:?}: {}", out, e);
+    let out_absolute = match resolve_game_path(&source) {
+        Some(p) => {
+            println!("[XODUS] Launching game from directory: {}", p.display());
+            p
+        }
+        None => {
+            eprintln!("[XODUS] Failed to resolve game path for '{}'.", source);
+            eprintln!("Please specify a valid game folder path, game title, or product ID.");
             return ExitCode::FAILURE;
         }
     };
