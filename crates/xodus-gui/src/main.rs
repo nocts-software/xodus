@@ -972,6 +972,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .with_devtools(true)
         .with_accept_first_mouse(true)
+        .with_focused(true)
         .with_html(&combined_html)
 
         .with_ipc_handler(move |req| {
@@ -1364,9 +1365,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         gtk_win.show_all();
         gtk_win.present();
+        let _ = wv.focus();
         wv
     };
     window.set_focus();
+    let _ = webview.focus();
 
     let proxy_startup = proxy.clone();
     let tokens_startup = tokens.clone();
