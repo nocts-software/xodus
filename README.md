@@ -18,6 +18,10 @@
     <img src="https://img.shields.io/badge/License-GPL--3.0-purple?style=for-the-badge" alt="License" />
 </p>
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="Xodus GUI Screenshot" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);" />
+</p>
+
 > [!CAUTION]
 > **Unofficial Project Notice**: Xodus is an independent, open-source project and is not affiliated with, endorsed by, or sponsored by Microsoft Corporation or Xbox. All trademarks, product names, and logos are property of their respective owners.
 
