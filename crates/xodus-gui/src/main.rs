@@ -17,6 +17,10 @@ const JS: &str = include_str!("../ui/app.js");
 #[derive(Debug)]
 enum CustomEvent {
     EvaluateScript(String),
+    Minimize,
+    Maximize,
+    Close,
+    DragWindow,
 }
 
 fn normalize_title(title: &str) -> String {
@@ -978,20 +982,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
                 if let Some(cmd) = v.get("cmd").and_then(|c| c.as_str()) {
                     match cmd {
+                        "js_error" => {
+                            eprintln!("[JS ERROR FROM WEBVIEW] {body}");
+                            log::error!("[JS ERROR FROM WEBVIEW] {body}");
+                        }
                         "drag_window" => {
-                            let _ = win_ipc.drag_window();
+                            let _ = proxy_ipc.send_event(CustomEvent::DragWindow);
                         }
                         "minimize" => {
-                            win_ipc.set_minimized(true);
+                            let _ = proxy_ipc.send_event(CustomEvent::Minimize);
                         }
                         "maximize" => {
-                            let is_max = win_ipc.is_maximized();
-                            win_ipc.set_maximized(!is_max);
-                            record_window_state(&win_ipc, &win_state_ipc);
+                            let _ = proxy_ipc.send_event(CustomEvent::Maximize);
                         }
                         "close" => {
-                            record_window_state(&win_ipc, &win_state_ipc);
-                            std::process::exit(0);
+                            let _ = proxy_ipc.send_event(CustomEvent::Close);
                         }
                         "launch_game" => {
                             if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
@@ -1402,6 +1407,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     st.height = (log_size.height as u32).clamp(600, 2160);
                 }
                 save_window_state(&st);
+            }
+            Event::UserEvent(CustomEvent::Minimize) => {
+                window.set_minimized(true);
+            }
+            Event::UserEvent(CustomEvent::Maximize) => {
+                let is_max = window.is_maximized();
+                window.set_maximized(!is_max);
+                record_window_state(&window, &win_state_loop);
+            }
+            Event::UserEvent(CustomEvent::Close) => {
+                record_window_state(&window, &win_state_loop);
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::UserEvent(CustomEvent::DragWindow) => {
+                let _ = window.drag_window();
             }
             Event::UserEvent(CustomEvent::EvaluateScript(script)) => {
                 if let Err(e) = webview.evaluate_script(&script) {

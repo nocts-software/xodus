@@ -1,5 +1,19 @@
 // Xodus GUI Client Application Logic
 
+window.onerror = function(msg, url, line, col, error) {
+  console.error('[JS ERROR]', msg, 'at', url, line + ':' + col, error);
+  if (typeof sendNativeCommand === 'function') {
+    sendNativeCommand({ cmd: 'js_error', msg: String(msg), line: line, col: col, stack: error ? error.stack : '' });
+  }
+  return false;
+};
+window.addEventListener('unhandledrejection', function(event) {
+  console.error('[JS UNHANDLED PROMISE]', event.reason);
+  if (typeof sendNativeCommand === 'function') {
+    sendNativeCommand({ cmd: 'js_error', msg: 'Unhandled Promise: ' + String(event.reason) });
+  }
+});
+
 const state = {
   activeTab: 'library',
   filter: 'all',
