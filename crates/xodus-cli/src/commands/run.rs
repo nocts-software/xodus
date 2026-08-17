@@ -226,6 +226,10 @@ async fn ensure_service_running() {
             .ok();
         let mut cmd = tokio::process::Command::new(bin);
         cmd.env("RUST_LOG", "info,xodus=debug,xodus_service=debug");
+        // Forward game version so the service can embed TitleVersion in the Xbox title token
+        if let Ok(game_ver) = std::env::var("XODUS_GAME_VERSION") {
+            cmd.env("XODUS_GAME_VERSION", game_ver);
+        }
         if let Some(ref f) = log_file {
             if let Ok(f_clone) = f.try_clone() {
                 cmd.stdout(std::process::Stdio::from(f_clone));
@@ -351,6 +355,14 @@ pub async fn run(
                     "Detected Package Identity: {} (v{}) [Family: {}]",
                     manifest.identity.name, manifest.identity.version, pfn
                 );
+                // Pass the game version as an env var so xodus-service can embed
+                // TitleVersion in the Xbox title token for the Athena TVR claim.
+                if !manifest.identity.version.is_empty() {
+                    unsafe {
+                        std::env::set_var("XODUS_GAME_VERSION", &manifest.identity.version);
+                    }
+                    log::info!("[XODUS-RUN] Set XODUS_GAME_VERSION={}", manifest.identity.version);
+                }
                 package_family_name = Some(pfn);
                 if exe.is_none() {
                     if let Some(target_exe) = manifest.primary_executable() {
@@ -906,25 +918,43 @@ pub async fn run(
     for dir in &target_sub_dirs {
         if dir.exists() {
             if let Some(ref gdk) = gdk_dll {
-                let _ = tokio::fs::copy(gdk, dir.join("xgameruntime.dll")).await;
+                let target_dll = dir.join("xgameruntime.dll");
+                let _ = tokio::fs::remove_file(&target_dll).await;
+                let _ = tokio::fs::copy(gdk, &target_dll).await;
+
                 let gdk_so = gdk.with_extension("dll.so");
                 if gdk_so.exists() {
-                    let _ = tokio::fs::copy(&gdk_so, dir.join("xgameruntime.dll.so")).await;
-                    let _ = tokio::fs::copy(&gdk_so, dir.join("xgameruntime.so")).await;
+                    let target_dll_so = dir.join("xgameruntime.dll.so");
+                    let target_so = dir.join("xgameruntime.so");
+                    let _ = tokio::fs::remove_file(&target_dll_so).await;
+                    let _ = tokio::fs::remove_file(&target_so).await;
+                    let _ = tokio::fs::copy(&gdk_so, &target_dll_so).await;
+                    let _ = tokio::fs::copy(&gdk_so, &target_so).await;
                 }
             }
             if let Some(ref twinapi) = twinapi_dll {
-                let _ = tokio::fs::copy(twinapi, dir.join("twinapi.appcore.dll")).await;
+                let target_twinapi = dir.join("twinapi.appcore.dll");
+                let _ = tokio::fs::remove_file(&target_twinapi).await;
+                let _ = tokio::fs::copy(twinapi, &target_twinapi).await;
+
                 let twinapi_so = twinapi.with_extension("dll.so");
                 if twinapi_so.exists() {
-                    let _ = tokio::fs::copy(&twinapi_so, dir.join("twinapi.appcore.dll.so")).await;
-                    let _ = tokio::fs::copy(&twinapi_so, dir.join("twinapi.appcore.so")).await;
+                    let target_twinapi_so = dir.join("twinapi.appcore.dll.so");
+                    let target_twinapi_short_so = dir.join("twinapi.appcore.so");
+                    let _ = tokio::fs::remove_file(&target_twinapi_so).await;
+                    let _ = tokio::fs::remove_file(&target_twinapi_short_so).await;
+                    let _ = tokio::fs::copy(&twinapi_so, &target_twinapi_so).await;
+                    let _ = tokio::fs::copy(&twinapi_so, &target_twinapi_short_so).await;
                 }
             }
             if let Some(ref appnotify) = appnotify_dll {
-                let _ = tokio::fs::copy(appnotify, dir.join("api-ms-win-core-psm-appnotify-l1-1-0.dll")).await;
+                let target_appnotify = dir.join("api-ms-win-core-psm-appnotify-l1-1-0.dll");
+                let _ = tokio::fs::remove_file(&target_appnotify).await;
+                let _ = tokio::fs::copy(appnotify, &target_appnotify).await;
             }
-            let _ = tokio::fs::copy(content_dir.join("MicrosoftGame.config"), dir.join("MicrosoftGame.config")).await;
+            let target_cfg = dir.join("MicrosoftGame.config");
+            let _ = tokio::fs::remove_file(&target_cfg).await;
+            let _ = tokio::fs::copy(content_dir.join("MicrosoftGame.config"), &target_cfg).await;
         }
     }
 

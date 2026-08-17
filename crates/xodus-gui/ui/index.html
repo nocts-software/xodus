@@ -347,15 +347,20 @@
       <p style="margin-bottom: 20px; color: var(--text-secondary);">Your local save data differs from the Xbox Live cloud save. Which one would you like to use?</p>
       
       <div style="display: flex; gap: 16px; margin-bottom: 24px;">
-        <div class="save-option-card" id="localSaveCard">
+        <div class="save-option-card" id="localSaveCard" onclick="resolveSaveConflict('local')">
           <div style="font-weight: 600; margin-bottom: 8px;">Local Save</div>
           <div id="localSaveInfo" style="font-size: 13px; color: var(--text-secondary);">Loading...</div>
         </div>
-        <div class="save-option-card" id="cloudSaveCard">
+        <div class="save-option-card" id="cloudSaveCard" onclick="resolveSaveConflict('cloud')">
           <div style="font-weight: 600; margin-bottom: 8px;">Cloud Save</div>
           <div id="cloudSaveInfo" style="font-size: 13px; color: var(--text-secondary);">Loading...</div>
         </div>
       </div>
+      <div style="display: flex; justify-content: flex-end; gap: 12px;">
+        <button class="btn btn-secondary" onclick="document.getElementById('cloudSyncModal').style.display='none'">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Uninstall Confirmation Modal -->
   <div class="modal-overlay" id="uninstallModal" style="display: none;">

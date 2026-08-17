@@ -20,8 +20,7 @@ const state = {
 };
 
 // Initialize Application
-document.addEventListener('DOMContentLoaded', () => {
-  setupIPCBridge();
+function initApp() {
   setupNavigation();
   setupWindowControls();
   setupCustomDropdowns();
@@ -31,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
   renderGames();
   renderFriends();
   updateHeroBanner(state.games[0]);
-
 
   const authBtn = document.getElementById('authButton');
   if (authBtn) {
@@ -43,7 +41,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Request live Xbox Live profile, friends, and entitlements from backend
   sendNativeCommand({ cmd: 'init' });
-});
+}
+
+// Initialize IPC bridge immediately
+setupIPCBridge();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
 
 
 function setupCustomDropdowns() {
@@ -686,10 +693,20 @@ function showToast(message) {
 
 // Native IPC Bridge
 function sendNativeCommand(payload) {
+  const str = typeof payload === 'string' ? payload : JSON.stringify(payload);
   if (window.ipc && typeof window.ipc.postMessage === 'function') {
-    window.ipc.postMessage(JSON.stringify(payload));
+    window.ipc.postMessage(str);
+  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc && typeof window.webkit.messageHandlers.ipc.postMessage === 'function') {
+    window.webkit.messageHandlers.ipc.postMessage(str);
   } else {
-    console.log('[Native IPC]', payload);
+    console.log('[Native IPC Pending]', payload);
+    setTimeout(() => {
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {
+        window.ipc.postMessage(str);
+      } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {
+        window.webkit.messageHandlers.ipc.postMessage(str);
+      }
+    }, 150);
   }
 }
 
@@ -841,7 +858,6 @@ function getEditionTier(title) {
 
       state.games = Array.from(uniqueMap.values());
       renderGames();
-      renderSaves();
       if (state.games.length > 0) {
         updateHeroBanner(state.games.find(g => g.installed) || state.games[0]);
       }
