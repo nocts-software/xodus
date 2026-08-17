@@ -322,6 +322,22 @@ fn find_xodus_cli() -> std::path::PathBuf {
             }
         }
     }
+    if let Ok(appdir) = std::env::var("APPDIR") {
+        let p1 = std::path::PathBuf::from(&appdir).join("usr/bin/xodus");
+        if p1.exists() { return p1; }
+        let p2 = std::path::PathBuf::from(&appdir).join("usr/bin/xodus-cli");
+        if p2.exists() { return p2; }
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let p_cargo = std::path::PathBuf::from(&home).join(".cargo/bin/xodus");
+    if p_cargo.exists() { return p_cargo; }
+    let p_cargo_cli = std::path::PathBuf::from(&home).join(".cargo/bin/xodus-cli");
+    if p_cargo_cli.exists() { return p_cargo_cli; }
+    let p_local = std::path::PathBuf::from("/usr/local/bin/xodus");
+    if p_local.exists() { return p_local; }
+    let p_usr = std::path::PathBuf::from("/usr/bin/xodus");
+    if p_usr.exists() { return p_usr; }
+
     std::path::PathBuf::from("xodus")
 }
 
@@ -773,7 +789,7 @@ async fn run_hydrate_and_sync(
                     if folder_lower == "gamesave" || folder_lower == "wgs" || folder_lower == "msixvc" || folder_lower.starts_with('.') || folder_lower.starts_with('$') {
                         continue;
                     }
-                    let _ = tokio::process::Command::new("xodus")
+                    let _ = tokio::process::Command::new(find_xodus_cli())
                         .arg("save")
                         .arg("pull")
                         .arg(&p)
@@ -903,7 +919,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let proxy_tokio = proxy_ipc.clone();
                                 rt.spawn(async move {
                                     // 1. Check cloud save status
-                                    let status_output = tokio::process::Command::new("xodus")
+                                    let status_output = tokio::process::Command::new(find_xodus_cli())
                                         .arg("save")
                                         .arg("status")
                                         .arg("--json")
@@ -942,7 +958,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                         // 2. Launch game immediately if no discrepancy
                                         let log_file = std::fs::File::create("/tmp/xodus-run.log").unwrap();
-                                        let child = tokio::process::Command::new("xodus")
+                                        let child = tokio::process::Command::new(find_xodus_cli())
                                             .arg("run")
                                             .arg(&path_owned)
                                             .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
@@ -962,16 +978,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let proxy_tokio = proxy_ipc.clone();
                                 rt.spawn(async move {
                                     if choice_owned == "cloud" {
-                                        let _ = tokio::process::Command::new("xodus").arg("save").arg("pull").arg(&path_owned).status().await;
+                                        let _ = tokio::process::Command::new(find_xodus_cli()).arg("save").arg("pull").arg(&path_owned).status().await;
                                     } else if choice_owned == "local" {
-                                        let _ = tokio::process::Command::new("xodus").arg("save").arg("push").arg(&path_owned).status().await;
+                                        let _ = tokio::process::Command::new(find_xodus_cli()).arg("save").arg("push").arg(&path_owned).status().await;
                                     }
                                     
                                     let script = "if (window.showToast) window.showToast('Launching game...');";
                                     let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script.to_string()));
 
                                     let log_file = std::fs::File::create("/tmp/xodus-run.log").unwrap();
-                                    let child = tokio::process::Command::new("xodus")
+                                    let child = tokio::process::Command::new(find_xodus_cli())
                                         .arg("run")
                                         .arg(&path_owned)
                                         .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
@@ -987,7 +1003,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
                                 let path_owned = path.to_string();
                                 rt.spawn(async move {
-                                    let _ = tokio::process::Command::new("xodus")
+                                    let _ = tokio::process::Command::new(find_xodus_cli())
                                         .arg("save")
                                         .arg("pull")
                                         .arg(&path_owned)
@@ -1000,7 +1016,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
                                 let path_owned = path.to_string();
                                 rt.spawn(async move {
-                                    let _ = tokio::process::Command::new("xodus")
+                                    let _ = tokio::process::Command::new(find_xodus_cli())
                                         .arg("save")
                                         .arg("push")
                                         .arg(&path_owned)
@@ -1018,7 +1034,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     while let Ok(Some(entry)) = entries.next_entry().await {
                                         let p = entry.path();
                                         if p.is_dir() {
-                                            let _ = tokio::process::Command::new("xodus")
+                                            let _ = tokio::process::Command::new(find_xodus_cli())
                                                 .arg("save")
                                                 .arg("pull")
                                                 .arg(&p)
@@ -1045,7 +1061,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let tokens_clone = tokens_ipc.clone();
                             let proxy_tokio = proxy_ipc.clone();
                             rt.spawn(async move {
-                                let child = tokio::process::Command::new("xodus")
+                                let child = tokio::process::Command::new(find_xodus_cli())
                                     .arg("login")
                                     .spawn();
                                 if let Ok(mut c) = child {

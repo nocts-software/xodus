@@ -18,6 +18,7 @@ const state = {
   games: [],
   friends: []
 };
+window.state = state;
 
 // Initialize Application
 function initApp() {
@@ -308,48 +309,83 @@ function updateHeroBanner(game) {
   const badgeEl = document.getElementById('heroBadge');
   const actionsEl = document.getElementById('heroActions');
 
-  if (titleEl) titleEl.textContent = game.title;
-  if (descEl) descEl.textContent = `${game.developer} • ${game.size} • ${game.installed ? 'Installed Local Container' : 'Cloud Entitled'}`;
-  if (badgeEl) badgeEl.textContent = game.installed ? 'JUST PLAYED • READY TO PLAY' : (game.licenseType === 'gamepass' ? 'INCLUDED WITH GAME PASS' : 'OWNED LICENSE');
+  const gameTitle = game.title || 'Unknown Title';
+  const gameDev = game.developer || 'Xbox Game Studios';
+  const gameSize = game.size || 'Standard';
+  const gamePath = game.path || `/mnt/w11/XboxGames/${game.productId || game.id || ''}`;
+  const isInstalled = !!game.installed;
+
+  if (titleEl) titleEl.textContent = gameTitle;
+  if (descEl) descEl.textContent = `${gameDev} • ${gameSize} • ${isInstalled ? 'Installed Local Container' : 'Cloud Entitled'}`;
+  if (badgeEl) badgeEl.textContent = isInstalled ? 'JUST PLAYED • READY TO PLAY' : (game.licenseType === 'gamepass' ? 'INCLUDED WITH GAME PASS' : 'OWNED LICENSE');
   if (bgImg) {
-    bgImg.src = game.splash || game.cover;
+    bgImg.src = game.splash || game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
   }
 
-
   if (actionsEl) {
-    if (game.installed) {
-      actionsEl.innerHTML = `
-        <button class="btn btn-primary btn-lg" onclick="launchGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          <span>Play</span>
-        </button>
-        <button class="btn btn-secondary btn-lg" onclick="syncGameSaves('${game.path.replace(/'/g, "\\'")}')">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-          </svg>
-          <span>Sync Saves</span>
-        </button>
-        <button class="btn btn-secondary btn-lg btn-danger-hover" onclick="promptUninstallGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')" title="Uninstall ${game.title}">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-          <span>Uninstall</span>
-        </button>
+    actionsEl.innerHTML = '';
+    if (isInstalled) {
+      const playBtn = document.createElement('button');
+      playBtn.className = 'btn btn-primary btn-lg';
+      playBtn.id = 'heroPlayBtn';
+      playBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>Play</span>
       `;
+      playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        launchGame(gameTitle, gamePath);
+      });
+      actionsEl.appendChild(playBtn);
+
+      const syncBtn = document.createElement('button');
+      syncBtn.className = 'btn btn-secondary btn-lg';
+      syncBtn.id = 'heroSyncBtn';
+      syncBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+        <span>Sync Saves</span>
+      `;
+      syncBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        syncGameSaves(gamePath);
+      });
+      actionsEl.appendChild(syncBtn);
+
+      const uninstallBtn = document.createElement('button');
+      uninstallBtn.className = 'btn btn-secondary btn-lg btn-danger-hover';
+      uninstallBtn.title = `Uninstall ${gameTitle}`;
+      uninstallBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        <span>Uninstall</span>
+      `;
+      uninstallBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        promptUninstallGame(gameTitle, gamePath);
+      });
+      actionsEl.appendChild(uninstallBtn);
     } else {
-      actionsEl.innerHTML = `
-        <button class="btn btn-primary btn-lg" onclick="installGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          <span>Install Game</span>
-        </button>
+      const installBtn = document.createElement('button');
+      installBtn.className = 'btn btn-primary btn-lg';
+      installBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Install Game</span>
       `;
+      installBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        installGame(gameTitle, gamePath);
+      });
+      actionsEl.appendChild(installBtn);
     }
   }
 }
@@ -361,19 +397,21 @@ function renderGames() {
   grid.innerHTML = '';
 
   const filtered = state.games.filter(game => {
-    const matchesSearch = !state.searchQuery ||
-      game.title.toLowerCase().includes(state.searchQuery) ||
-      game.developer.toLowerCase().includes(state.searchQuery) ||
-      game.productId.toLowerCase().includes(state.searchQuery);
+    if (!game) return false;
+    const q = state.searchQuery || '';
+    const title = (game.title || '').toLowerCase();
+    const dev = (game.developer || '').toLowerCase();
+    const pid = (game.productId || game.id || '').toLowerCase();
+    const matchesSearch = !q || title.includes(q) || dev.includes(q) || pid.includes(q);
 
     if (!matchesSearch) return false;
 
-    if (state.filter === 'installed') return game.installed;
+    if (state.filter === 'installed') return !!game.installed;
     if (state.filter === 'gamepass') return game.licenseType === 'gamepass';
     if (state.filter === 'owned') return game.licenseType === 'owned';
 
     if (state.hasGamePassSubscription === false && state.activeTab === 'library') {
-      return game.installed || game.licenseType === 'owned';
+      return !!game.installed || game.licenseType === 'owned';
     }
 
     return true;
@@ -387,7 +425,7 @@ function renderGames() {
         updateHeroBanner(game);
       }
     });
-    
+
     let badgeClass = 'gamepass';
     let badgeText = 'GAME PASS';
     if (game.installed) {
@@ -398,41 +436,99 @@ function renderGames() {
       badgeText = 'OWNED';
     }
 
-    let actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1;" onclick="installGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">Install</button>`;
-    if (game.installed) {
-      actionBtnHtml = `<button class="btn btn-primary btn-sm" style="flex: 1;" onclick="launchGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')">Play</button>`;
-    } else if (game.licenseType === 'gamepass' && state.hasGamePassSubscription === false) {
-      actionBtnHtml = `<button class="btn btn-secondary btn-sm" style="flex: 1; opacity: 0.7;" onclick="showToast('Active PC Game Pass subscription required to install this title')">Join Game Pass</button>`;
-    }
+    const coverUrl = game.cover || 'https://assets.xboxservices.com/assets/default_cover.png';
+    const gameTitle = game.title || 'Untitled';
+    const gameDev = game.developer || 'Xbox';
+    const gameSize = game.size || 'Standard';
+    const gamePath = game.path || `/mnt/w11/XboxGames/${game.productId || game.id || ''}`;
 
-    card.innerHTML = `
-      <div class="game-card-cover">
-        <img src="${game.cover}" alt="${game.title}" loading="lazy">
-        <span class="game-card-badge ${badgeClass}">${badgeText}</span>
-      </div>
-      <div class="game-card-info">
-        <span class="game-card-title">${game.title}</span>
-        <div class="game-card-meta">
-          <span>${game.developer}</span>
-          <span>${game.size}</span>
-        </div>
-        <div class="game-card-actions">
-          ${actionBtnHtml}
-          <button class="btn btn-secondary btn-sm" onclick="syncGameSaves('${game.path.replace(/'/g, "\\'")}')" title="Sync Saves">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-            </svg>
-          </button>
-          ${game.installed ? `
-          <button class="btn btn-secondary btn-sm btn-danger-hover" onclick="promptUninstallGame('${game.title.replace(/'/g, "\\'")}', '${game.path.replace(/'/g, "\\'")}')" title="Uninstall ${game.title}">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-          </button>` : ''}
-        </div>
+    const coverDiv = document.createElement('div');
+    coverDiv.className = 'game-card-cover';
+    coverDiv.innerHTML = `
+      <img src="${coverUrl}" alt="" loading="lazy">
+      <span class="game-card-badge ${badgeClass}">${badgeText}</span>
+    `;
+    card.appendChild(coverDiv);
+
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'game-card-info';
+    infoDiv.innerHTML = `
+      <span class="game-card-title">${gameTitle}</span>
+      <div class="game-card-meta">
+        <span>${gameDev}</span>
+        <span>${gameSize}</span>
       </div>
     `;
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'game-card-actions';
+
+    if (game.installed) {
+      const playBtn = document.createElement('button');
+      playBtn.className = 'btn btn-primary btn-sm';
+      playBtn.style.flex = '1';
+      playBtn.textContent = 'Play';
+      playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        launchGame(gameTitle, gamePath);
+      });
+      actionsDiv.appendChild(playBtn);
+    } else if (game.licenseType === 'gamepass' && state.hasGamePassSubscription === false) {
+      const joinBtn = document.createElement('button');
+      joinBtn.className = 'btn btn-secondary btn-sm';
+      joinBtn.style.flex = '1';
+      joinBtn.style.opacity = '0.7';
+      joinBtn.textContent = 'Join Game Pass';
+      joinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showToast('Active PC Game Pass subscription required to install this title');
+      });
+      actionsDiv.appendChild(joinBtn);
+    } else {
+      const installBtn = document.createElement('button');
+      installBtn.className = 'btn btn-secondary btn-sm';
+      installBtn.style.flex = '1';
+      installBtn.textContent = 'Install';
+      installBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        installGame(gameTitle, gamePath);
+      });
+      actionsDiv.appendChild(installBtn);
+    }
+
+    const syncBtn = document.createElement('button');
+    syncBtn.className = 'btn btn-secondary btn-sm';
+    syncBtn.title = 'Sync Saves';
+    syncBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+      </svg>
+    `;
+    syncBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      syncGameSaves(gamePath);
+    });
+    actionsDiv.appendChild(syncBtn);
+
+    if (game.installed) {
+      const uninstallBtn = document.createElement('button');
+      uninstallBtn.className = 'btn btn-secondary btn-sm btn-danger-hover';
+      uninstallBtn.title = `Uninstall ${gameTitle}`;
+      uninstallBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      `;
+      uninstallBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        promptUninstallGame(gameTitle, gamePath);
+      });
+      actionsDiv.appendChild(uninstallBtn);
+    }
+
+    infoDiv.appendChild(actionsDiv);
+    card.appendChild(infoDiv);
     grid.appendChild(card);
   });
 
@@ -486,28 +582,43 @@ function renderFriends() {
 
   let inGameCount = 0;
   let onlineCount = 0;
+  let offlineCount = 0;
 
   state.friends.forEach(f => {
+    if (!f) return;
     const card = document.createElement('div');
     card.className = 'friend-card';
-    const st = (f.state || 'offline').toLowerCase();
+    const st = (f.state || f.presenceState || 'offline').toLowerCase();
     const isIngame = st === 'in-game' || st === 'ingame';
     const isOnline = st === 'online' || st === 'active' || st === 'away';
     const badgeClass = isIngame ? 'online' : (isOnline ? (st === 'away' ? 'away' : 'online') : 'offline');
+    const avatarUrl = f.avatar || f.displayPicRaw || 'https://assets.xboxservices.com/assets/default_avatar.png';
+    const gamertag = f.gamertag || 'Xbox Friend';
+    const richText = f.richPresence || f.presenceText || (isOnline ? 'Online' : 'Offline');
 
     card.innerHTML = `
       <div class="friend-main">
         <div class="friend-avatar">
-          <img src="${f.avatar}" alt="${f.gamertag}">
+          <img src="${avatarUrl}" alt="">
           <span class="presence-badge ${badgeClass}"></span>
         </div>
         <div class="friend-details">
-          <span class="friend-gamertag">${f.gamertag}</span>
-          <span class="friend-presence ${isIngame ? 'in-game' : ''}">${f.richPresence || (isOnline ? 'Online' : 'Offline')}</span>
+          <span class="friend-gamertag">${gamertag}</span>
+          <span class="friend-presence ${isIngame ? 'in-game' : ''}">${richText}</span>
         </div>
       </div>
-      ${f.canJoin ? `<button class="btn btn-primary btn-sm" onclick="joinFriendGame('${f.gamertag}', '${f.gameTitle}')">Join Game</button>` : ''}
     `;
+
+    if (f.canJoin) {
+      const joinBtn = document.createElement('button');
+      joinBtn.className = 'btn btn-primary btn-sm';
+      joinBtn.textContent = 'Join Game';
+      joinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        joinFriendGame(gamertag, f.gameTitle || '');
+      });
+      card.appendChild(joinBtn);
+    }
 
     if (isIngame && inGameList) {
       inGameList.appendChild(card);
@@ -517,6 +628,7 @@ function renderFriends() {
       onlineCount++;
     } else if (offlineList) {
       offlineList.appendChild(card);
+      offlineCount++;
     }
   });
 
@@ -526,7 +638,7 @@ function renderFriends() {
   if (onlineList && onlineCount === 0) {
     onlineList.innerHTML = '<div class="friends-empty-hint">No friends currently online</div>';
   }
-  if (offlineList && offlineList.children.length === 0) {
+  if (offlineList && offlineCount === 0) {
     offlineList.innerHTML = '<div class="friends-empty-hint">No offline friends found</div>';
   }
 
@@ -660,6 +772,19 @@ function refreshFriends() {
   showToast('Updating friends presence...');
   sendNativeCommand({ cmd: 'get_friends' });
 }
+
+window.launchGame = launchGame;
+window.installGame = installGame;
+window.uninstallGame = uninstallGame;
+window.syncGameSaves = syncGameSaves;
+window.syncAllSaves = syncAllSaves;
+window.pullSave = pullSave;
+window.pushSave = pushSave;
+window.joinFriendGame = joinFriendGame;
+window.updatePresence = updatePresence;
+window.refreshUserLicenses = refreshUserLicenses;
+window.refreshFriends = refreshFriends;
+window.switchTab = switchTab;
 
 // Progress Bar
 function showProgress(title, percent, speed = '32.4 MB/s') {

@@ -230,6 +230,9 @@ async fn ensure_service_running() {
         if let Ok(game_ver) = std::env::var("XODUS_GAME_VERSION") {
             cmd.env("XODUS_GAME_VERSION", game_ver);
         }
+        if let Ok(pfn) = std::env::var("XODUS_PACKAGE_FAMILY_NAME") {
+            cmd.env("XODUS_PACKAGE_FAMILY_NAME", pfn);
+        }
         if let Some(ref f) = log_file {
             if let Ok(f_clone) = f.try_clone() {
                 cmd.stdout(std::process::Stdio::from(f_clone));
@@ -355,14 +358,19 @@ pub async fn run(
                     "Detected Package Identity: {} (v{}) [Family: {}]",
                     manifest.identity.name, manifest.identity.version, pfn
                 );
-                // Pass the game version as an env var so xodus-service can embed
-                // TitleVersion in the Xbox title token for the Athena TVR claim.
+                // Pass the game version and package family name as env vars so xodus-service can embed
+                // TitleVersion + PackageFamilyName in the Xbox title token for the Athena TVR claim.
                 if !manifest.identity.version.is_empty() {
                     unsafe {
                         std::env::set_var("XODUS_GAME_VERSION", &manifest.identity.version);
                     }
                     log::info!("[XODUS-RUN] Set XODUS_GAME_VERSION={}", manifest.identity.version);
                 }
+                let pfn = manifest.package_family_name();
+                unsafe {
+                    std::env::set_var("XODUS_PACKAGE_FAMILY_NAME", &pfn);
+                }
+                log::info!("[XODUS-RUN] Set XODUS_PACKAGE_FAMILY_NAME={}", pfn);
                 package_family_name = Some(pfn);
                 if exe.is_none() {
                     if let Some(target_exe) = manifest.primary_executable() {
