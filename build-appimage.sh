@@ -64,13 +64,19 @@ export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
 export XODUS_RUNTIME_PATH="${HERE}/usr/lib"
 export WINEDLLPATH="${HERE}/usr/lib:${WINEDLLPATH}"
 
-# If invoked with CLI subcommands, route to xodus CLI
-if [ -n "$1" ] && [ "$1" != "gui" ] && [ "$1" != "--gui" ]; then
-    if [ "$1" = "cli" ]; then shift; fi
-    exec "${HERE}/usr/bin/xodus" "$@"
+# Ensure WebKitGTK and GDK run reliably across all Wayland compositors (Bazzite, Fedora, SteamOS, GNOME, KDE)
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+
+# If invoked without arguments, or explicitly with gui / --gui / -g / ui, launch graphical interface
+if [ -z "$1" ] || [ "$1" = "gui" ] || [ "$1" = "--gui" ] || [ "$1" = "-g" ] || [ "$1" = "ui" ]; then
+    if [ "$1" = "gui" ] || [ "$1" = "--gui" ] || [ "$1" = "-g" ] || [ "$1" = "ui" ]; then shift; fi
+    exec "${HERE}/usr/bin/xodus-gui" "$@"
 fi
 
-exec "${HERE}/usr/bin/xodus-gui" "$@"
+# Otherwise route all CLI arguments and subcommands (login, download, play, run, status, etc.) to xodus CLI
+if [ "$1" = "cli" ]; then shift; fi
+exec "${HERE}/usr/bin/xodus" "$@"
 EOF
 
 chmod +x "$APP_DIR/AppRun"

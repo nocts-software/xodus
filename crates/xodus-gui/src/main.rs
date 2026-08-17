@@ -1237,6 +1237,15 @@ async fn run_download_worker(
 /// Initializes the Tokio runtime, Tao event loop, frameless window, Wry WebView, IPC handlers,
 /// and background catalog sync tasks.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // WebKitGTK on Wayland stability: disable DMA-BUF and hardware compositing subsurfaces
+    // which cause unrecoverable protocol errors on many Wayland compositors (Bazzite, Fedora, SteamOS, GNOME/KDE)
+    if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1"); }
+    }
+    if std::env::var("WEBKIT_DISABLE_COMPOSITING_MODE").is_err() {
+        unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1"); }
+    }
+
     env_logger::init_from_env("XODUS_LOG");
     xodus::secrets::init_secrets().ok();
 
