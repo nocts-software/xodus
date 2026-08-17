@@ -1322,6 +1322,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "close" => {
                             let _ = proxy_ipc.send_event(CustomEvent::Close);
                         }
+                        "open_url" => {
+                            if let Some(url) = v.get("url").and_then(|u| u.as_str()) {
+                                log::info!("Opening URL: {}", url);
+                                let _ = std::process::Command::new("xdg-open")
+                                    .arg(url)
+                                    .spawn();
+                            }
+                        }
                         "launch_game" => {
                             if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
                                 let path_owned = path.to_string();

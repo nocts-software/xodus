@@ -1792,3 +1792,9 @@ function getEditionTier(title) {
   };
 }
 
+
+function openUrl(url) {
+  sendNativeCommand({ cmd: 'open_url', url: url });
+}
+window.openUrl = openUrl;
+
