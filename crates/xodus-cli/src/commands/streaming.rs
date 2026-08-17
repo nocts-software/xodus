@@ -217,14 +217,19 @@ pub async fn run(
             let Some(file) = package
                 .package_files
                 .iter()
-                .find(|p| p.file_name.ends_with(".msixvc"))
+                .find(|p| {
+                    let lower = p.file_name.to_lowercase();
+                    lower.ends_with(".msixvc") || lower.ends_with(".xvc") || lower.ends_with(".xvd")
+                })
+                .or_else(|| package.package_files.first())
             else {
-                eprintln!("No .msixvc file found");
+                eprintln!("No package file found in GetBasePackage response");
                 return ExitCode::FAILURE;
             };
+            let cdn_root = file.cdn_root_paths.first().map(|s| s.as_str()).unwrap_or("");
             format!(
                 "{}{}",
-                file.cdn_root_paths.first().unwrap(),
+                cdn_root,
                 file.relative_url
             )
         };

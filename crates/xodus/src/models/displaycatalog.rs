@@ -104,7 +104,8 @@ pub struct SkuProperties {
     pub sku_display_group_ids: Option<Vec<String>>,
     #[serde(default)]
     pub xbox_xpa: bool,
-    // pub bundled_skus: Vec<String>,
+    #[serde(default)]
+    pub bundled_skus: Vec<BundledSku>,
     pub is_repurchasable: bool,
     // pub sku_display_rank: Vec<SkuDisplayRank>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -115,6 +116,16 @@ pub struct SkuProperties {
     pub is_trial: bool,
     pub is_pre_order: bool,
     pub is_bundle: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct BundledSku {
+    pub big_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_rank: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_primary: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

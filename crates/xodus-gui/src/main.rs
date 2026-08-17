@@ -1466,8 +1466,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                                 };
 
                                                                                 total_bytes += size;
+                                                                                let sub_big_id = sub_p.get("ProductId").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                                                                                let final_pkg_id = if !sub_big_id.is_empty() { sub_big_id } else if !content_id.is_empty() { content_id } else { pkg_id };
                                                                                 packages_json.push(serde_json::json!({
-                                                                                    "id": if !content_id.is_empty() { content_id } else { pkg_id },
+                                                                                    "id": final_pkg_id,
                                                                                     "name": display_name,
                                                                                     "sizeBytes": size,
                                                                                     "sizeFormatted": format_bytes(size),
@@ -1523,8 +1525,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "install_game" => {
                             let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("Game").to_string();
                             let product_id = v.get("productId").or_else(|| v.get("id")).and_then(|p| p.as_str()).unwrap_or("").to_string();
+                            let selected_packages: Vec<String> = v.get("selectedPackages")
+                                .and_then(|p| p.as_array())
+                                .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
+                                .unwrap_or_default();
                             let path = v.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
-                            log::info!("Handling install request for: {title} (ID: {product_id}, Path: {path})");
+                            log::info!("Handling install request for: {title} (ID: {product_id}, Path: {path}, Pkgs: {:?})", selected_packages);
 
                             let proxy_tokio = proxy_ipc.clone();
 
@@ -1544,58 +1550,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
 
-                                if target_id.len() != 12 || !target_id.chars().all(|c| c.is_alphanumeric()) {
-                                    log::warn!("Cannot install {title}: Not a valid Windows PC Store BigID ({target_id})");
-                                    let script = format!(
-                                        "if (window.onInstallError) window.onInstallError('{}', 'This title is an Xbox console-only license and has no Windows PC MSIXVC package on the Microsoft Store.');",
-                                        title.replace('\'', "\\'")
-                                    );
-                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
-                                    return;
-                                }
-
                                 let safe_title: String = title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect();
                                 let dest_dir = format!("/mnt/w11/XboxGames/{}", safe_title.trim());
                                 let _ = tokio::fs::create_dir_all(&dest_dir).await;
 
-                                let script = format!(
-                                    "if (window.updateDownloadProgress) window.updateDownloadProgress('{}', 15, 'Streaming package chunks from Microsoft CDN...');",
-                                    title.replace('\'', "\\'")
-                                );
-                                let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+                                let packages_to_install: Vec<String> = if !selected_packages.is_empty() {
+                                    selected_packages
+                                } else {
+                                    vec![target_id]
+                                };
 
+                                let total_pkgs = packages_to_install.len();
+                                let mut installed_success = 0;
                                 let cli_path = find_xodus_cli();
-                                let child = tokio::process::Command::new(&cli_path)
-                                    .arg("streaming")
-                                    .arg(&target_id)
-                                    .arg(&dest_dir)
-                                    .spawn();
 
-                                if let Ok(mut c) = child {
-                                    let status = c.wait().await;
-                                    if status.map(|s| s.success()).unwrap_or(false) && has_game_files(std::path::Path::new(&dest_dir)) {
-                                        let script = format!(
-                                            "if (window.onInstallComplete) window.onInstallComplete('{}', '{}');",
-                                            title.replace('\'', "\\'"),
-                                            dest_dir.replace('\'', "\\'")
-                                        );
-                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
-                                    } else {
-                                        if !has_game_files(std::path::Path::new(&dest_dir)) {
-                                            let _ = tokio::fs::remove_dir_all(&dest_dir).await;
+                                for (i, pkg_target) in packages_to_install.iter().enumerate() {
+                                    let progress_pct = ((i as f64) / (total_pkgs as f64) * 80.0 + 10.0) as u32;
+                                    let script = format!(
+                                        "if (window.updateDownloadProgress) window.updateDownloadProgress('{}', {}, 'Streaming package {} of {} from Microsoft CDN...');",
+                                        title.replace('\'', "\\'"),
+                                        progress_pct,
+                                        i + 1,
+                                        total_pkgs
+                                    );
+                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
+
+                                    let child = tokio::process::Command::new(&cli_path)
+                                        .arg("streaming")
+                                        .arg(pkg_target)
+                                        .arg(&dest_dir)
+                                        .spawn();
+
+                                    if let Ok(mut c) = child {
+                                        let status = c.wait().await;
+                                        if status.map(|s| s.success()).unwrap_or(false) {
+                                            installed_success += 1;
+                                        } else {
+                                            log::warn!("Package streaming failed for {} (package: {})", title, pkg_target);
                                         }
-                                        let script = format!(
-                                            "if (window.onInstallError) window.onInstallError('{}', 'Package streaming download failed or was canceled.');",
-                                            title.replace('\'', "\\'")
-                                        );
-                                        let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
                                     }
+                                }
+
+                                if installed_success > 0 || has_game_files(std::path::Path::new(&dest_dir)) {
+                                    let script = format!(
+                                        "if (window.onInstallComplete) window.onInstallComplete('{}', '{}');",
+                                        title.replace('\'', "\\'"),
+                                        dest_dir.replace('\'', "\\'")
+                                    );
+                                    let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));
                                 } else {
                                     if !has_game_files(std::path::Path::new(&dest_dir)) {
                                         let _ = tokio::fs::remove_dir_all(&dest_dir).await;
                                     }
                                     let script = format!(
-                                        "if (window.onInstallError) window.onInstallError('{}', 'Failed to launch xodus streaming downloader.');",
+                                        "if (window.onInstallError) window.onInstallError('{}', 'Package streaming download failed or was canceled.');",
                                         title.replace('\'', "\\'")
                                     );
                                     let _ = proxy_tokio.send_event(CustomEvent::EvaluateScript(script));

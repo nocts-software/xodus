@@ -12,7 +12,7 @@ pub async fn get_content_id(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let displaycatalog = find_products_by_id(
         client,
-        product,
+        product.clone(),
         market.clone().unwrap_or("neutral".to_owned()),
         vec!["en".to_string(), "neutral".to_string()],
     )
@@ -27,10 +27,15 @@ pub async fn get_content_id(
             if package
                 .platform_dependencies
                 .iter()
-                .any(|dep| dep.platform_name == "Windows.Desktop")
+                .any(|dep| dep.platform_name == "Windows.Desktop" || dep.platform_name == "Universal")
             {
                 found_package = Some(package);
                 break 'o;
+            }
+        }
+        for bundled in &availability.sku.properties.bundled_skus {
+            if !bundled.big_id.is_empty() && bundled.big_id != product {
+                subprods.push(bundled.big_id.clone());
             }
         }
         for availability in &availability.availabilities {
@@ -38,7 +43,7 @@ pub async fn get_content_id(
                 for satisfies in &licensing_data.satisfying_entitlement_keys {
                     for entitlement_key in &satisfies.entitlement_keys {
                         let key: Vec<&str> = entitlement_key.split(":").collect();
-                        if key.len() == 3 && key[0] == "big" {
+                        if key.len() == 3 && key[0] == "big" && key[1] != product {
                             subprods.push(key[1].to_string());
                         }
                     }
@@ -46,18 +51,46 @@ pub async fn get_content_id(
             }
         }
     }
+    subprods.retain(|s| s != &product);
     subprods.sort();
     subprods.dedup();
 
     let Some(package) = found_package else {
         if !subprods.is_empty() {
-            let Ok(item) = Select::new("Select files to download", subprods)
-                .with_page_size(30)
-                .prompt()
-            else {
-                return Err(Box::new(std::io::Error::other("Selection failed")));
-            };
-            return Box::pin(get_content_id(client, item, market)).await;
+            // First check if any subprod has a Windows.Desktop package automatically
+            for sub in &subprods {
+                if let Ok(sub_cat) = find_products_by_id(
+                    client,
+                    sub.clone(),
+                    market.clone().unwrap_or("neutral".to_owned()),
+                    vec!["en".to_string(), "neutral".to_string()],
+                ).await {
+                    for avail in &sub_cat.product.display_sku_availabilities {
+                        for pkg in &avail.sku.properties.packages {
+                            if pkg.platform_dependencies.iter().any(|dep| dep.platform_name == "Windows.Desktop") {
+                                if let Some(cid) = &pkg.content_id {
+                                    return Ok(cid.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            use std::io::IsTerminal;
+            if std::io::stdin().is_terminal() {
+                if let Ok(item) = Select::new("Select files to download", subprods.clone())
+                    .with_page_size(30)
+                    .prompt()
+                {
+                    return Box::pin(get_content_id(client, item, market)).await;
+                }
+            }
+
+            // Fallback for non-interactive / GUI callers: try the first sub-product
+            if let Some(first_sub) = subprods.first() {
+                return Box::pin(get_content_id(client, first_sub.clone(), market)).await;
+            }
         }
 
         return Err(Box::new(std::io::Error::other(
