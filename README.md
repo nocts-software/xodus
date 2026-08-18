@@ -1,6 +1,6 @@
 <p align="center"><img width="128" src="assets/Icon/Icon.ico" /></p>
 <h1 align="center">Xodus</h1>
-<p align="center"><strong>Fork of [xodus-gaming](https://github.com/xodus-gaming)</strong></p>
+<p align="center"><strong>Fork of <a href="https://github.com/xodus-gaming">xodus-gaming</a><strong></</p>
 <p align="center"><strong>The Native Microsoft Store & Xbox Game Pass Client for Linux</strong></p>
 <p align="center">
     <a href="https://github.com/nocts-software/xodus/releases">
